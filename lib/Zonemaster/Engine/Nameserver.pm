@@ -1,8 +1,10 @@
 package Zonemaster::Engine::Nameserver;
 
+use v5.16.0;
+use warnings;
+
 use version; our $VERSION = version->declare("v1.1.16");
 
-use 5.014002;
 use Class::Accessor qw[ antlers ];
 
 use Zonemaster::Engine::DNSName;
@@ -10,10 +12,10 @@ use Zonemaster::Engine;
 use Zonemaster::Engine::Packet;
 use Zonemaster::Engine::Nameserver::Cache;
 use Zonemaster::Engine::Recursor;
-use Zonemaster::Engine::Constants ':misc';
+use Zonemaster::Engine::Constants qw( :ip :misc );
 use Zonemaster::LDNS;
 
-use Zonemaster::Engine::Net::IP;
+use Net::IP::XS;
 use Time::HiRes qw[time];
 use JSON::PP;
 use MIME::Base64;
@@ -37,8 +39,6 @@ has 'dns'   => ( is => 'ro' );
 has 'cache' => ( is => 'ro' );
 has 'times' => ( is => 'ro' );
 
-has 'source_address' => ( is => 'ro' );
-
 has 'fake_delegations' => ( is => 'ro' );
 has 'fake_ds'          => ( is => 'ro' );
 
@@ -57,14 +57,12 @@ our %address_repr_cache;
 ###
 
 sub new {
-    my $proto = shift;
-    my $class = ref $proto || $proto;
+    my $class = shift;
     my $attrs = shift;
 
     my %lazy_attrs;
-    $lazy_attrs{source_address} = delete $attrs->{source_address} if exists $attrs->{source_address};
-    $lazy_attrs{dns}            = delete $attrs->{dns}            if exists $attrs->{dns};
-    $lazy_attrs{cache}          = delete $attrs->{cache}          if exists $attrs->{cache};
+    $lazy_attrs{dns}             = delete $attrs->{dns}             if exists $attrs->{dns};
+    $lazy_attrs{cache}           = delete $attrs->{cache}           if exists $attrs->{cache};
 
     # Required arguments
     confess "Attribute \(address\) is required"
@@ -75,21 +73,21 @@ sub new {
       if !blessed $attrs->{name} || !$attrs->{name}->isa( 'Zonemaster::Engine::DNSName' );
 
     my $name = lc( q{} . $attrs->{name} );
-    $name = '$$$NONAME' unless $name;
+    $name = '$$$NONAME' if $name eq q{};
 
     my $address;
 
     # Use a object cache for IP type coercion (don't parse IP unless it is needed)
-    if (!blessed $attrs->{address} || !$attrs->{address}->isa( 'Zonemaster::Engine::Net::IP' )) {
+    if (!blessed $attrs->{address} || !$attrs->{address}->isa( 'Net::IP::XS' )) {
         if (!exists $address_object_cache{$attrs->{address}}) {
-            $address_object_cache{$attrs->{address}} = Zonemaster::Engine::Net::IP->new($attrs->{address});
-            $address_repr_cache{$attrs->{address}} = $address_object_cache{$attrs->{address}}->ip;
+            $address_object_cache{$attrs->{address}} = Net::IP::XS->new($attrs->{address});
+            $address_repr_cache{$attrs->{address}} = $address_object_cache{$attrs->{address}}->short;
         }
         # Fetch IP object from the address cache (avoid object creation and method call)
         $address = $address_repr_cache{$attrs->{address}};
         $attrs->{address} = $address_object_cache{$attrs->{address}};
     } else {
-        $address = $attrs->{address}->ip;
+        $address = $attrs->{address}->short;
     }
 
     # Return Nameserver object as soon as possible
@@ -100,9 +98,9 @@ sub new {
     # Type constraints
     confess "Argument must be coercible into a Zonemaster::Engine::DNSName: name"
       if !$attrs->{name}->isa( 'Zonemaster::Engine::DNSName' );
-    confess "Argument must be coercible into a Zonemaster::Engine::Net::IP: address"
+    confess "Argument must be coercible into a Net::IP::XS: address"
       if exists $attrs->{address}
-      && !$attrs->{address}->isa( 'Zonemaster::Engine::Net::IP' );
+      && !$attrs->{address}->isa( 'Net::IP::XS' );
     confess "Argument must be an ARRAYREF: times"
       if exists $attrs->{times}
       && ref $attrs->{times} ne 'ARRAY';
@@ -115,9 +113,6 @@ sub new {
     confess "Argument must be a HASHREF: blacklisted"
       if exists $attrs->{blacklisted}
       && ref $attrs->{blacklisted} ne 'HASH';
-    confess "Argument must be a string or undef: source_address"
-      if exists $lazy_attrs{source_address}
-      && ref $lazy_attrs{source_address} ne '';
     confess "Argument must be a Zonemaster::LDNS: dns"
       if exists $lazy_attrs{dns}
       && ( !blessed $lazy_attrs{dns} || !$lazy_attrs{dns}->isa( 'Zonemaster::LDNS' ) );
@@ -132,31 +127,15 @@ sub new {
     $attrs->{times}            //= [];
 
     my $obj = Class::Accessor::new( $class, $attrs );
-    $obj->{_source_address} = $lazy_attrs{source_address} if exists $lazy_attrs{source_address};
-    $obj->{_dns}            = $lazy_attrs{dns}            if exists $lazy_attrs{dns};
-    $obj->{_cache}          = $lazy_attrs{cache}          if exists $lazy_attrs{cache};
+    $obj->{_dns}             = $lazy_attrs{dns}             if exists $lazy_attrs{dns};
+    $obj->{_cache}           = $lazy_attrs{cache}           if exists $lazy_attrs{cache};
 
-    Zonemaster::Engine->logger->add( NS_CREATED => { name => $name, ip => $obj->address->ip } );
+    $obj->{_string}          = $name . q{/} . $address;
+
+    Zonemaster::Engine->logger->add( NS_CREATED => { name => $name, ip => $address } );
     $object_cache{$name}{$address} = $obj;
 
     return $obj;
-}
-
-sub source_address {
-    my $self = shift;
-
-    # Lazy default value
-    if ( !exists $self->{_source_address} ) {
-        my $value = Zonemaster::Engine::Profile->effective->get( q{resolver.source} );
-        if ( $value eq $RESOLVER_SOURCE_OS_DEFAULT ) {
-            $self->{_source_address} = undef;
-        }
-        else {
-            $self->{_source_address} = $value;
-        }
-    }
-
-    return $self->{_source_address};
 }
 
 sub dns {
@@ -185,20 +164,19 @@ sub _build_dns {
     my ( $self ) = @_;
 
     my $res = Zonemaster::LDNS->new( $self->address->ip );
+
     $res->recurse( 0 );
+    $res->dnssec( 0 );
+    $res->edns_size( 0 );
 
     $res->retry( Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.retry} ) );
     $res->retrans( Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.retrans} ) );
-    $res->dnssec( Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.dnssec} ) );
-    $res->usevc( Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.usevc} ) );
-    $res->igntc( Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.igntc} ) );
-    $res->recurse( Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.recurse} ) );
     $res->debug( Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.debug} ) );
-    $res->edns_size( Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.edns_size} ) );
     $res->timeout( Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.timeout} ) );
 
-    if ( $self->source_address ) {
-        $res->source( $self->source_address );
+    my $src_address = $self->source_address();
+    if ( defined( $src_address ) ) {
+        $res->source( $src_address );
     }
 
     return $res;
@@ -207,7 +185,10 @@ sub _build_dns {
 sub _build_cache {
     my ( $self ) = @_;
 
-    Zonemaster::Engine::Nameserver::Cache->new( { address => $self->address } );
+    my $cache_type = Zonemaster::Engine::Nameserver::Cache->get_cache_type( Zonemaster::Engine::Profile->effective );
+    my $cache_class = Zonemaster::Engine::Nameserver::Cache->get_cache_class( $cache_type );
+
+    $cache_class->new( { address => $self->address } );
 }
 
 ###
@@ -218,12 +199,15 @@ sub query {
     my ( $self, $name, $type, $href ) = @_;
     $type //= 'A';
 
-    if ( $self->address->version == 4 and not Zonemaster::Engine::Profile->effective->get( q{net.ipv4} ) ) {
+    my $address = $self->address;
+    my $profile = Zonemaster::Engine::Profile->effective;
+
+    if ( $address->version == 4 and not $profile->get( q{net.ipv4} ) ) {
         Zonemaster::Engine->logger->add( IPV4_BLOCKED => { ns => $self->string } );
         return;
     }
 
-    if ( $self->address->version == 6 and not Zonemaster::Engine::Profile->effective->get( q{net.ipv6} ) ) {
+    if ( $address->version == 6 and not $profile->get( q{net.ipv6} ) ) {
         Zonemaster::Engine->logger->add( IPV6_BLOCKED => { ns => $self->string } );
         return;
     }
@@ -234,15 +218,20 @@ sub query {
             name  => "$name",
             type  => $type,
             flags => $href,
-            ip    => $self->address->short
+            ip    => $address->short
         }
     );
 
-    my $class     = $href->{class}     // 'IN';
-    my $dnssec    = $href->{dnssec}    // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.dnssec} );
-    my $usevc     = $href->{usevc}     // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.usevc} );
-    my $recurse   = $href->{recurse}   // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.recurse} );
-    my $edns_size = $href->{edns_size} // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.edns_size} );
+    my $class   = $href->{class}   // 'IN';
+    my $dnssec  = $href->{dnssec}  // 0;
+    my $usevc   = $href->{usevc}   // 0;
+    my $recurse = $href->{recurse} // 0;
+
+    if ( exists $href->{edns_details} and exists $href->{edns_details}{do} ) {
+        $dnssec = $href->{edns_details}{do};
+    }
+
+    my $edns_size = $href->{edns_size} // ( $dnssec ? $EDNS_UDP_PAYLOAD_DNSSEC_DEFAULT : 0 );
 
     # Fake a DS answer
     if ( $type eq 'DS' and $class eq 'IN' and $self->fake_ds->{ lc( $name ) } ) {
@@ -258,7 +247,8 @@ sub query {
         }
 
         my $res = Zonemaster::Engine::Packet->new( { packet => $p } );
-        Zonemaster::Engine->logger->add( FAKE_DS_RETURNED => { name => "$name", from => "$self" } );
+        Zonemaster::Engine->logger->add( FAKE_DS_RETURNED => { name => "$name", type  => $type, class => $class, from => "$self" } );
+        Zonemaster::Engine->logger->add( FAKE_PACKET_RETURNED => { packet => $res->string } );
         return $res;
     }
 
@@ -286,66 +276,44 @@ sub query {
             $p->qr( 1 );
             $p->do( $dnssec );
             $p->rd( $recurse );
-            $p->answerfrom( $self->address->ip );
+            $p->answerfrom( $address->ip );
 
-            Zonemaster::Engine->logger->add(
-                'FAKE_DELEGATION',
-                {
-                    name  => "$name",
-                    type  => $type,
-                    class => $class,
-                    from  => "$self",
-                }
-            );
+            Zonemaster::Engine->logger->add( FAKE_DELEGATION_RETURNED => { name  => "$name", type  => $type, class => $class, from  => "$self" } );
 
             my $res = Zonemaster::Engine::Packet->new( { packet => $p } );
-            Zonemaster::Engine->logger->add( FAKED_RETURN => { packet => $res->string } );
+            Zonemaster::Engine->logger->add( FAKE_PACKET_RETURNED => { packet => $res->string } );
             return $res;
         } ## end if ( $name =~ m/([.]|\A)\Q$fname\E\z/xi)
     } ## end foreach my $fname ( sort keys...)
 
-    my $p;
     my $md5 = Digest::MD5->new;
-    my $edns_special_case = 0;
-    if ( defined $href->{edns_details} ) {
-        if ( defined $href->{edns_details}{version} and $href->{edns_details}{version} != 0 ) {
-            $edns_special_case = 1;
-        }
-        elsif ( defined $href->{edns_details}{z} ) {
-            $edns_special_case = 1;
-        }
-        elsif ( defined $href->{edns_details}{extended_rcode} ) {
-            $edns_special_case = 1;
-        }
-        elsif ( defined $href->{edns_details}{data} ) {
-            $edns_special_case = 1;
-        }
-        elsif ( defined $href->{edns_details}{udp_size} ) {
-            $edns_size = $href->{edns_details}{udp_size};
-        }
+
+    $md5->add( q{NAME}    , $name,
+               q{TYPE}    , "\U$type",
+               q{CLASS}   , "\U$class",
+               q{DNSSEC}  , $dnssec,
+               q{USEVC}   , $usevc,
+               q{RECURSE} , $recurse );
+
+    if ( exists $href->{edns_details} ) {
+        $md5->add( q{EDNS_VERSION}        , $href->{edns_details}{version} // 0,
+                   q{EDNS_Z}              , $href->{edns_details}{z} // 0,
+                   q{EDNS_EXTENDED_RCODE} , $href->{edns_details}{rcode} // 0,
+                   q{EDNS_DATA}           , $href->{edns_details}{data} // q{} );
+        $edns_size = $href->{edns_details}{size} // ( $href->{edns_size} // ( $dnssec ? $EDNS_UDP_PAYLOAD_DNSSEC_DEFAULT : $EDNS_UDP_PAYLOAD_DEFAULT ) );
     }
 
-    $md5->add( q{NAME}    , $name );
-    $md5->add( q{TYPE}    , "\U$type" );
-    $md5->add( q{CLASS}   , "\U$class" );
-    $md5->add( q{DNSSEC}  , $dnssec );
-    $md5->add( q{USEVC}   , $usevc );
-    $md5->add( q{RECURSE} , $recurse );
-    if ( $edns_special_case ) {
-        $md5->add( q{EDNS_VERSION}        , $href->{edns_details}{version} ? $href->{edns_details}{version} : 0 );
-        $md5->add( q{EDNS_Z}              , $href->{edns_details}{z} ? $href->{edns_details}{z} : 0 );
-        $md5->add( q{EDNS_EXTENDED_RCODE} , $href->{edns_details}{extended_rcode} ? $href->{edns_details}{extended_rcode} : 0 );
-        $md5->add( q{EDNS_DATA}           , $href->{edns_details}{data} ? $href->{edns_details}{data} : q{} );
-        $md5->add( q{EDNS_UDP_SIZE}       , $href->{edns_details}{udp_size} ? $href->{edns_details}{udp_size} : 0 );
-    }
-    else {
-        $md5->add( q{EDNS_UDP_SIZE}       , $edns_size);
-    }
+    croak "edns_size (or edns_details->size) parameter must be a value between 0 and 65535" if $edns_size > 65535 or $edns_size < 0;
+
+    $md5->add( q{EDNS_UDP_SIZE} , $edns_size );
+
     my $idx = $md5->b64digest();
-    if ( not exists( $self->cache->data->{$idx} ) ) {
-        $self->cache->data->{$idx} = $self->_query( $name, $type, $href, $edns_special_case );
+
+    my ( $in_cache, $p ) = $self->cache->get_key( $idx );
+    if ( not $in_cache ) {
+        $p = $self->_query( $name, $type, $href );
+        $self->cache->set_key( $idx, $p );
     }
-    $p = $self->cache->data->{$idx};
 
     Zonemaster::Engine->logger->add( CACHED_RETURN => { packet => ( $p ? $p->string : 'undef' ) } );
 
@@ -360,19 +328,18 @@ sub add_fake_delegation {
     foreach my $name ( keys %{$href} ) {
         push @{ $delegation{authority} }, Zonemaster::LDNS::RR->new( sprintf( '%s IN NS %s', $domain, $name ) );
         foreach my $ip ( @{ $href->{$name} } ) {
-            if ( Zonemaster::Engine::Net::IP->new( $ip )->ip eq $self->address->ip ) {
-                Zonemaster::Engine->logger->add(
-                    FAKE_DELEGATION_TO_SELF => { ns => "$self", domain => $domain, data => $href } );
+            if ( Net::IP::XS->new( $ip )->ip eq $self->address->ip ) {
+                Zonemaster::Engine->logger->add( FAKE_DELEGATION_TO_SELF => { ns => "$self", domain => $domain, data => $href } );
                 return;
             }
 
             push @{ $delegation{additional} },
-              Zonemaster::LDNS::RR->new( sprintf( '%s IN %s %s', $name, ( Zonemaster::Engine::Net::IP::ip_is_ipv6( $ip ) ? 'AAAA' : 'A' ), $ip ) );
+              Zonemaster::LDNS::RR->new( sprintf( '%s IN %s %s', $name, ( Net::IP::XS::ip_is_ipv6( $ip ) ? 'AAAA' : 'A' ), $ip ) );
         }
     }
 
     $self->fake_delegations->{$domain} = \%delegation;
-    Zonemaster::Engine->logger->add( ADDED_FAKE_DELEGATION => { ns => "$self", domain => $domain, data => $href } );
+    Zonemaster::Engine->logger->add( FAKE_DELEGATION_ADDED => { ns => "$self", domain => $domain, data => $href } );
 
     # We're changing the world, so the cache can't be trusted
     Zonemaster::Engine::Recursor->clear_cache;
@@ -388,7 +355,6 @@ sub add_fake_ds {
         $domain = Zonemaster::Engine::DNSName->new( $domain );
     }
 
-    Zonemaster::Engine->logger->add( FAKE_DS => { domain => lc( "$domain" ), data => $aref, ns => "$self" } );
     foreach my $href ( @{$aref} ) {
         push @ds,
           Zonemaster::LDNS::RR->new(
@@ -400,6 +366,7 @@ sub add_fake_ds {
     }
 
     $self->fake_ds->{ lc( "$domain" ) } = \@ds;
+    Zonemaster::Engine->logger->add( FAKE_DS_ADDED => { domain => lc( "$domain" ), data => $aref, ns => "$self" } );
 
     # We're changing the world, so the cache can't be trusted
     Zonemaster::Engine::Recursor->clear_cache;
@@ -408,7 +375,7 @@ sub add_fake_ds {
 } ## end sub add_fake_ds
 
 sub _query {
-    my ( $self, $name, $type, $href, $edns_special_case ) = @_;
+    my ( $self, $name, $type, $href ) = @_;
     my %flags;
 
     $type //= 'A';
@@ -431,18 +398,26 @@ sub _query {
     );
 
     # Make sure we have a value for each flag
-    $flags{q{retry}}     = $href->{q{retry}}     // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.retry} );
-    $flags{q{retrans}}   = $href->{q{retrans}}   // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.retrans} );
-    $flags{q{dnssec}}    = $href->{q{dnssec}}    // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.dnssec} );
-    $flags{q{usevc}}     = $href->{q{usevc}}     // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.usevc} );
-    $flags{q{igntc}}     = $href->{q{igntc}}     // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.igntc} );
-    $flags{q{fallback}}  = $href->{q{fallback}}  // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.fallback} );
-    $flags{q{recurse}}   = $href->{q{recurse}}   // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.recurse} );
-    $flags{q{edns_size}} = $href->{q{edns_size}} // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.edns_size} );
-    $flags{q{timeout}}   = $href->{q{timeout}}   // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.timeout} );
-    if ( defined $href->{edns_details} and $href->{edns_details}{udp_size} ) {
-        $flags{q{edns_size}} = $href->{edns_details}{udp_size};
+    $flags{q{retry}}   = $href->{q{retry}} // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.retry} );
+    $flags{q{retrans}} = $href->{q{retrans}}
+      // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.retrans} );
+    $flags{q{dnssec}}   = $href->{q{dnssec}} // 0;
+    $flags{q{usevc}}    = $href->{q{usevc}}  // 0;
+    $flags{q{igntc}}    = $href->{q{igntc}}  // 0;
+    $flags{q{fallback}} = $href->{q{fallback}}
+      // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.fallback} );
+    $flags{q{recurse}} = $href->{q{recurse}} // 0;
+    $flags{q{timeout}} = $href->{q{timeout}}
+      // Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.timeout} );
+
+    if ( exists $href->{edns_details} ) {
+        $flags{q{dnssec}}    = $href->{edns_details}{do} // $flags{q{dnssec}};
+        $flags{q{edns_size}} = $href->{edns_details}{size} // ( $href->{q{edns_size}} // ( $flags{q{dnssec}} ? $EDNS_UDP_PAYLOAD_DNSSEC_DEFAULT : $EDNS_UDP_PAYLOAD_DEFAULT ) );
     }
+    else {
+        $flags{q{edns_size}} = $href->{q{edns_size}} // ( $flags{q{dnssec}} ? $EDNS_UDP_PAYLOAD_DNSSEC_DEFAULT : 0 );
+    }
+
     # Set flags for this query
     foreach my $flag ( keys %flags ) {
         $self->dns->$flag( $flags{$flag} );
@@ -450,7 +425,7 @@ sub _query {
 
     my $before = time();
     my $res;
-    if ( $BLACKLISTING_ENABLED and $self->blacklisted->{ $flags{usevc} }{ $flags{dnssec} } ) {
+    if ( $BLACKLISTING_ENABLED and $self->blacklisted->{ $flags{usevc} } ) {
         Zonemaster::Engine->logger->add(
             IS_BLACKLISTED => {
                 message => "Server transport has been blacklisted due to previous failure",
@@ -459,69 +434,62 @@ sub _query {
                 type    => $type,
                 class   => $href->{class},
                 proto   => $flags{usevc} ? q{TCP} : q{UDP},
-                dnssec  => $flags{dnssec}
+                dnssec  => $flags{dnssec},
+                edns_size => $flags{q{edns_size}}
             }
         );
     }
     else {
-        if ( $edns_special_case ) {
+        if ( exists $href->{edns_details} ) {
             my $pkt = Zonemaster::LDNS::Packet->new("$name", $type, $href->{class} );
-            if ( defined $href->{edns_details} and defined $href->{edns_details}{version} and $href->{edns_details}{version} != 0 ) {
-                $pkt->set_edns_present();
+            $pkt->set_edns_present();
+
+            $pkt->do($flags{q{dnssec}});
+            $pkt->edns_size($flags{q{edns_size}});
+
+            if ( exists $href->{edns_details}{version} ) {
                 $pkt->edns_version($href->{edns_details}{version});
             }
-	    if ( defined $href->{edns_details} and defined $href->{edns_details}{z} ) {
-                $pkt->set_edns_present();
+            if ( exists $href->{edns_details}{z} ) {
                 $pkt->edns_z($href->{edns_details}{z});
             }
-	    if ( defined $href->{edns_details} and defined $href->{edns_details}{do} ) {
-                $pkt->set_edns_present();
-                $pkt->do($href->{edns_details}{do});
+            if ( exists $href->{edns_details}{rcode} ) {
+                $pkt->edns_rcode($href->{edns_details}{rcode});
             }
-	    if ( defined $href->{edns_details} and defined $href->{edns_details}{udp_size} ) {
-                $pkt->set_edns_present();
-                $pkt->edns_size($href->{edns_details}{udp_size});
-            }
-	    if ( defined $href->{edns_details} and defined $href->{edns_details}{extended_rcode} ) {
-                $pkt->set_edns_present();
-                $pkt->edns_rcode($href->{edns_details}{extended_rcode});
-            }
-            if ( defined $href->{edns_details} and defined $href->{edns_details}{data} ) {
-                $pkt->set_edns_present();
+            if ( exists $href->{edns_details}{data} ) {
                 $pkt->edns_data($href->{edns_details}{data});
             }
-	    $res = eval { $self->dns->query_with_pkt( $pkt ) };
+
+            $res = eval { $self->dns->query_with_pkt( $pkt ) };
         }
         else {
             $res = eval { $self->dns->query( "$name", $type, $href->{class} ) };
         }
+
         if ( $@ ) {
             my $msg = "$@";
             my $trailing_info = " at ".__FILE__;
+
             chomp( $msg );
             $msg =~ s/$trailing_info.*/\./;
+
             Zonemaster::Engine->logger->add( LOOKUP_ERROR =>
                   { message => $msg, ns => "$self", domain => "$name", type => $type, class => $href->{class} } );
-            if ( not $href->{q{blacklisting_disabled}} ) {
-                $self->blacklisted->{ $flags{usevc} }{ $flags{dnssec} } = 1;
-                if ( !$flags{dnssec} ) {
-                    $self->blacklisted->{ $flags{usevc} }{ !$flags{dnssec} } = 1;
-                }
+
+            if ( not $href->{q{blacklisting_disabled}} and $type eq q{SOA} and $flags{q{edns_size}} == 0 ) {
+                $self->blacklisted->{ $flags{usevc} } = 1;
+                Zonemaster::Engine->logger->add( BLACKLISTING =>
+                  { ns => "$self", proto => $flags{usevc} ? q{TCP} : q{UDP} } );
             }
         }
     }
+
     push @{ $self->times }, ( time() - $before );
-
-    # Reset to defaults
-
-    foreach my $flag ( keys %flags ) {
-        $self->dns->$flag( Zonemaster::Engine::Profile->effective->get( q{resolver.defaults.}.$flag ) );
-    }
 
     if ( $res ) {
         my $p = Zonemaster::Engine::Packet->new( { packet => $res } );
         my $size = length( $p->data );
-        if ( $size > $UDP_COMMON_EDNS_LIMIT ) {
+        if ( $size > $EDNS_UDP_PAYLOAD_COMMON_LIMIT ) {
             my $command = sprintf q{dig @%s %s%s %s}, $self->address->short, $flags{dnssec} ? q{+dnssec } : q{},
               "$name", $type;
             Zonemaster::Engine->logger->add(
@@ -537,9 +505,7 @@ sub _query {
 } ## end sub _query
 
 sub string {
-    my ( $self ) = @_;
-
-    return $self->name->string . q{/} . $self->address->short;
+    return $_[0]->{_string};
 }
 
 sub compare {
@@ -553,9 +519,11 @@ sub save {
 
     my $old = POSIX::setlocale( POSIX::LC_ALL, 'C' );
     my $json = JSON::PP->new->allow_blessed->convert_blessed;
+    $json = $json->canonical( 1 );
+
     open my $fh, '>', $filename or die "Cache save failed: $!";
-    foreach my $name ( keys %object_cache ) {
-        foreach my $addr ( keys %{ $object_cache{$name} } ) {
+    foreach my $name ( sort keys %object_cache ) {
+        foreach my $addr ( sort keys %{ $object_cache{$name} } ) {
             say $fh "$name $addr " . $json->encode( $object_cache{$name}{$addr}->cache->data );
         }
     }
@@ -590,6 +558,9 @@ sub restore {
         }
       );
 
+    my $cache_type = Zonemaster::Engine::Nameserver::Cache->get_cache_type( Zonemaster::Engine::Profile->effective );
+    my $cache_class = Zonemaster::Engine::Nameserver::Cache->get_cache_class( $cache_type );
+
     open my $fh, '<', $filename or die "Failed to open restore data file: $!\n";
     while ( my $line = <$fh> ) {
         my ( $name, $addr, $data ) = split( / /, $line, 3 );
@@ -597,8 +568,8 @@ sub restore {
         my $ns  = Zonemaster::Engine::Nameserver->new(
             {
                 name    => $name,
-                address => Zonemaster::Engine::Net::IP->new($addr),
-                cache   => Zonemaster::Engine::Nameserver::Cache->new( { data => $ref, address => Zonemaster::Engine::Net::IP->new( $addr ) } )
+                address => Net::IP::XS->new($addr),
+                cache   => $cache_class->new( { data => $ref, address => Net::IP::XS->new( $addr ) } )
             }
         );
     }
@@ -695,6 +666,14 @@ sub axfr {
     return $self->dns->axfr( $domain, $callback, $class );
 } ## end sub axfr
 
+sub source_address {
+    my ( $self ) = @_;
+
+    my $src_address = Zonemaster::Engine::Profile->effective->get( "resolver.source" . Net::IP::XS::ip_get_version( $self->address->ip ) );
+
+    return $src_address eq '' ? undef : $src_address;
+}
+
 sub empty_cache {
     %object_cache = ();
     %address_object_cache = ();
@@ -720,7 +699,7 @@ Zonemaster::Engine::Nameserver - object representing a DNS nameserver
 
 This is a very central object in the L<Zonemaster::Engine> framework. All DNS
 communications with the outside world pass through here, so we can do
-things like synthezising and recording traffic. All the objects are
+things like synthesizing and recording traffic. All the objects are
 also unique per name/IP pair, and creating a new one with an already
 existing pair will return the existing object instead of creating a
 new one. Queries and their responses are cached by IP address, so that
@@ -739,23 +718,26 @@ A L<Zonemaster::Engine::DNSName> object holding the nameserver's name.
 
 =item address
 
-A L<Zonemaster::Engine::Net::IP> object holding the nameserver's address.
+A L<Net::IP::XS> object holding the nameserver's address.
 
 =item dns
 
-The L<Zonemaster::LDNS> object used to actually send and recieve DNS queries.
+The L<Zonemaster::LDNS> object used to actually send and receive DNS queries.
 
 =item cache
 
 A reference to a L<Zonemaster::Engine::Nameserver::Cache> object holding the cache of sent queries. Not meant for external use.
 
-=item source_address
-
-The source address all resolver objects should use when sending queries.
-
 =item times
 
 A reference to a list with elapsed time values for the queries made through this nameserver.
+
+=item blacklisted
+
+A reference to a hash used to prevent sending subsequent queries to the name server after specific queries have failed.
+
+The mechanism will only trigger on no response from non-EDNS SOA queries and is protocol dependent (i.e. TCP/UDP). It can be disabled
+on a per query basis with L<blacklisting_disabled>, or globally with L<Zonemaster::Engine::Constants/$BLACKLISTING_ENABLED>.
 
 =back
 
@@ -794,7 +776,7 @@ Remove all cached nameserver objects and queries.
 
 Send a DNS query to the nameserver the object represents. C<$name> and C<$type> are the name and type that will be queried for (C<$type> defaults
 to 'A' if it's left undefined). C<$flagref> is a reference to a hash, the keys of which are flags and the values are their corresponding values.
-The available flags are as follows. All but the first directly correspond to methods in the L<Zonemaster::LDNS::Resolver> object.
+The available flags are as follows. All but 'class' and 'edns_details' directly correspond to methods in the L<Zonemaster::LDNS> object.
 
 =over
 
@@ -808,11 +790,14 @@ Send the query via TCP (only).
 
 =item retrans
 
-The retransmission interval
+The retransmission interval.
 
 =item dnssec
 
-Set the DO flag in the query.
+Set the DO flag in the query. Defaults to false.
+
+If set to true, it becomes an EDNS query.
+Value overridden by C<edns_details{do}> (if also given). More details in L<edns_details> below.
 
 =item debug
 
@@ -840,7 +825,28 @@ If set to true, incoming response packets with the TC flag set fall back to EDNS
 
 =item blacklisting_disabled
 
-If set to true, prevents a server to be black-listed on a query in case there is no answer OR rcode is REFUSED.
+If set to true, prevents a name server from being blacklisted.
+
+=item edns_size
+
+Set the EDNS0 UDP maximum size. The value must be comprised between 0 and 65535.
+Defaults to 0, or 512 if the query is a non-DNSSEC EDNS query, or 1232 if the query is a DNSSEC query.
+
+Setting a value other than 0 will also implicitly enable EDNS for the query.
+Value overridden by C<edns_details-E<gt>{size}> (if also given). More details in L<edns_details> below.
+
+=item edns_details
+
+A hash. An empty hash or a hash with any keys below will enable EDNS for the query.
+
+The currently supported keys are 'version', 'z', 'do', 'rcode', 'size' and 'data'.
+See L<Zonemaster::LDNS::Packet> for more details (key names prefixed with 'edns_').
+
+Note that flag L<edns_size> also exists (see above) and has the same effect as C<edns_details-E<gt>{size}>, although the value of the
+latter will take precedence if both are given.
+
+Similarly, note that flag L<dnssec> also exists (see above) and has the same effect as C<edns_details-E<gt>{do}>, although the value of the
+latter will take precedence if both are given.
 
 =back
 
@@ -896,6 +902,17 @@ function will be called once for each received RR, with that RR as its only
 argument. To continue getting more RRs, the callback must return a true value.
 If it returns a true value, the AXFR will be aborted. See L<Zonemaster::LDNS::axfr>
 for more details.
+
+=item source_address()
+
+    my $src_address = source_address();
+
+Returns the configured IPv4 or IPv6 source address to be used by the underlying DNS resolver for sending queries,
+or C<undef> if the source address is the empty string.
+
+=item empty_cache()
+
+Clears the caches of Zonemaster::Engine::Nameserver (name server names and IP addresses) and Zonemaster::Engine::Nameserver::Cache (query and response packets) objects.
 
 =back
 

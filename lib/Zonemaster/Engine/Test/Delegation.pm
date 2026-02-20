@@ -1,8 +1,6 @@
 package Zonemaster::Engine::Test::Delegation;
 
-use 5.014002;
-
-use strict;
+use v5.16.0;
 use warnings;
 
 use version; our $VERSION = version->declare("v1.0.20");
@@ -14,7 +12,6 @@ use Readonly;
 use Zonemaster::Engine::Profile;
 use Zonemaster::Engine::Recursor;
 use Zonemaster::Engine::Constants ':all';
-use Zonemaster::Engine::Net::IP;
 use Zonemaster::Engine::Test::Address;
 use Zonemaster::Engine::Test::Syntax;
 use Zonemaster::Engine::TestMethods;
@@ -22,9 +19,31 @@ use Zonemaster::Engine::Util;
 use Zonemaster::LDNS::Packet;
 use Zonemaster::LDNS::RR;
 
-###
-### Entry points
-###
+=head1 NAME
+
+Zonemaster::Engine::Test::Delegation - Module implementing tests focused on zone delegation
+
+=head1 SYNOPSIS
+
+    my @results = Zonemaster::Engine::Test::Delegation->all( $zone );
+
+=head1 METHODS
+
+=over
+
+=item all()
+
+    my @logentry_array = all( $zone );
+
+Runs the default set of tests for that module, i.e. L<seven tests|/TESTS>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub all {
     my ( $class, $zone ) = @_;
@@ -41,9 +60,18 @@ sub all {
     return @results;
 }
 
-###
-### Metadata Exposure
-###
+=over
+
+=item metadata()
+
+    my $hash_ref = metadata();
+
+Returns a reference to a hash, the keys of which are the names of all Test Cases in the module, and the corresponding values are references to
+an array containing all the message tags that the Test Case can use in L<log entries|Zonemaster::Engine::Logger::Entry>.
+
+=back
+
+=cut
 
 sub metadata {
     my ( $class ) = @_;
@@ -137,31 +165,31 @@ sub metadata {
 Readonly my %TAG_DESCRIPTIONS => (
     DELEGATION01 => sub {
         __x    # DELEGATION:DELEGATION01
-          "Minimum number of name servers", @_;
+          "Minimum number of name servers";
     },
     DELEGATION02 => sub {
         __x    # DELEGATION:DELEGATION02
-          "Name servers must have distinct IP addresses", @_;
+          "Name servers must have distinct IP addresses";
     },
     DELEGATION03 => sub {
         __x    # DELEGATION:DELEGATION03
-          "No truncation of referrals", @_;
+          "No truncation of referrals";
     },
     DELEGATION04 => sub {
         __x    # DELEGATION:DELEGATION04
-          "Name server is authoritative", @_;
+          "Name server is authoritative";
     },
     DELEGATION05 => sub {
         __x    # DELEGATION:DELEGATION05
-          "Name server must not point at CNAME alias", @_;
+          "Name server must not point at CNAME alias";
     },
     DELEGATION06 => sub {
         __x    # DELEGATION:DELEGATION06
-          "Existence of SOA", @_;
+          "Existence of SOA";
     },
     DELEGATION07 => sub {
         __x    # DELEGATION:DELEGATION07
-          "Parent glue name records present in child", @_;
+          "Parent glue name records present in child";
     },
     ARE_AUTHORITATIVE => sub {
         __x    # DELEGATION:ARE_AUTHORITATIVE
@@ -189,35 +217,35 @@ Readonly my %TAG_DESCRIPTIONS => (
     },
     ENOUGH_IPV4_NS_CHILD => sub {
         __x    # DELEGATION:ENOUGH_IPV4_NS_CHILD
-          "Child lists enough ({count}) nameservers ({nsname_list}) "
-          . "that resolve to IPv4 addresses ({ns_ip_list}). Lower limit set to {minimum}.",
+          "Child lists enough ({count}) nameservers that resolve to IPv4 "
+          . "addresses. Lower limit set to {minimum}. Name servers: {ns_list}",
           @_;
     },
     ENOUGH_IPV4_NS_DEL => sub {
         __x    # DELEGATION:ENOUGH_IPV4_NS_DEL
-          "Delegation lists enough ({count}) nameservers ({nsname_list}) "
-          . "that resolve to IPv4 addresses ({ns_ip_list}). Lower limit set to {minimum}.",
+          "Delegation lists enough ({count}) nameservers that resolve to IPv4 "
+          . "addresses. Lower limit set to {minimum}. Name servers: {ns_list}",
           @_;
     },
     ENOUGH_IPV6_NS_CHILD => sub {
         __x    # DELEGATION:ENOUGH_IPV6_NS_CHILD
-          "Child lists enough ({count}) nameservers ({nsname_list}) "
-          . "that resolve to IPv6 addresses ({ns_ip_list}). Lower limit set to {minimum}.",
+          "Child lists enough ({count}) nameservers that resolve to IPv6 "
+          . "addresses. Lower limit set to {minimum}. Name servers: {ns_list}",
           @_;
     },
     ENOUGH_IPV6_NS_DEL => sub {
         __x    # DELEGATION:ENOUGH_IPV6_NS_DEL
-          "Delegation lists enough ({count}) nameservers ({nsname_list}) "
-          . "that resolve to IPv6 addresses ({ns_ip_list}). Lower limit set to {minimum}.",
+          "Delegation lists enough ({count}) nameservers that resolve to IPv6 "
+          . "addresses. Lower limit set to {minimum}. Name servers: {ns_list}",
           @_;
     },
     ENOUGH_NS_CHILD => sub {
         __x    # DELEGATION:ENOUGH_NS_CHILD
-          "Child lists enough ({count}) nameservers ({nsname_list}). Lower limit set to {minimum}.", @_;
+          "Child lists enough ({count}) nameservers. Lower limit set to {minimum}. Name servers: {nsname_list}", @_;
     },
     ENOUGH_NS_DEL => sub {
         __x    # DELEGATION:ENOUGH_NS_DEL
-          "Parent lists enough ({count}) nameservers ({nsname_list}). Lower limit set to {minimum}.", @_;
+          "Delegation lists enough ({count}) nameservers. Lower limit set to {minimum}. Name servers: {nsname_list}", @_;
     },
     EXTRA_NAME_CHILD => sub {
         __x    # DELEGATION:EXTRA_NAME_CHILD
@@ -245,39 +273,39 @@ Readonly my %TAG_DESCRIPTIONS => (
     },
     NO_RESPONSE => sub {
         __x    # DELEGATION:NO_RESPONSE
-          "Nameserver {ns} did not respond.", @_;
+          'Nameserver {ns} did not respond to a query for name {query_name} and type {rrtype}.', @_;
     },
     NOT_ENOUGH_IPV4_NS_CHILD => sub {
         __x    # DELEGATION:NOT_ENOUGH_IPV4_NS_CHILD
-          "Child does not list enough ({count}) nameservers ({nsname_list}) "
-          . "that resolve to IPv4 addresses ({ns_ip_list}). Lower limit set to {minimum}.",
+          "Child does not list enough ({count}) nameservers that resolve to IPv4 "
+          . "addresses. Lower limit set to {minimum}. Name servers: {ns_list}",
           @_;
     },
     NOT_ENOUGH_IPV4_NS_DEL => sub {
         __x    # DELEGATION:NOT_ENOUGH_IPV4_NS_DEL
-          "Delegation does not list enough ({count}) nameservers ({nsname_list}) "
-          . "that resolve to IPv4 addresses ({ns_ip_list}). Lower limit set to {minimum}.",
+          "Delegation does not list enough ({count}) nameservers that resolve to IPv4 "
+          . "addresses. Lower limit set to {minimum}. Name servers: {ns_list}",
           @_;
     },
     NOT_ENOUGH_IPV6_NS_CHILD => sub {
         __x    # DELEGATION:NOT_ENOUGH_IPV6_NS_CHILD
-          "Child does not list enough ({count}) nameservers ({nsname_list}) "
-          . "that resolve to IPv6 addresses ({ns_ip_list}). Lower limit set to {minimum}.",
+          "Child does not list enough ({count}) nameservers that resolve to IPv6 "
+          . "addresses. Lower limit set to {minimum}. Name servers: {ns_list}",
           @_;
     },
     NOT_ENOUGH_IPV6_NS_DEL => sub {
         __x    # DELEGATION:NOT_ENOUGH_IPV6_NS_DEL
-          "Delegation does not list enough ({count}) nameservers ({nsname_list}) "
-          . "that resolve to IPv6 addresses ({ns_ip_list}). Lower limit set to {minimum}.",
+          "Delegation does not list enough ({count}) nameservers that resolve to IPv6 "
+          . "addresses. Lower limit set to {minimum}. Name servers: {ns_list}",
           @_;
     },
     NOT_ENOUGH_NS_CHILD => sub {
         __x    # DELEGATION:NOT_ENOUGH_NS_CHILD
-          "Child does not list enough ({count}) nameservers ({nsname_list}). Lower limit set to {minimum}.", @_;
+          "Child does not list enough ({count}) nameservers. Lower limit set to {minimum}. Name servers: {nsname_list}", @_;
     },
     NOT_ENOUGH_NS_DEL => sub {
         __x    # DELEGATION:NOT_ENOUGH_NS_DEL
-          "Parent does not list enough ({count}) nameservers ({nsname_list}). Lower limit set to {minimum}.", @_;
+          "Delegation does not list enough ({count}) nameservers. Lower limit set to {minimum}. Name servers: {nsname_list}", @_;
     },
     NO_IPV4_NS_CHILD => sub {
         __x    # DELEGATION:NO_IPV4_NS_CHILD
@@ -345,25 +373,88 @@ Readonly my %TAG_DESCRIPTIONS => (
     },
     UNEXPECTED_RCODE => sub {
         __x    # DELEGATION:UNEXPECTED_RCODE
-          'Nameserver {ns} answered query with an unexpected rcode ({rcode}).', @_;
+          'Nameserver {ns} answered query for name {query_name} and type {rrtype} with RCODE {rcode}.', @_;
     },
 
 );
+
+=over
+
+=item tag_descriptions()
+
+    my $hash_ref = tag_descriptions();
+
+Used by the L<built-in translation system|Zonemaster::Engine::Translator>.
+
+Returns a reference to a hash, the keys of which are the message tags and the corresponding values are strings (message IDs).
+
+=back
+
+=cut
 
 sub tag_descriptions {
     return \%TAG_DESCRIPTIONS;
 }
 
+=over
+
+=item version()
+
+    my $version_string = version();
+
+Returns a string containing the version of the current module.
+
+=back
+
+=cut
+
 sub version {
     return "$Zonemaster::Engine::Test::Delegation::VERSION";
 }
+
+=head1 INTERNAL METHODS
+
+=over
+
+=item _emit_log()
+
+    my $log_entry = _emit_log( $message_tag_string, $hash_ref );
+
+Adds a message to the L<logger|Zonemaster::Engine::Logger> for this module.
+See L<Zonemaster::Engine::Logger::Entry/add($tag, $argref, $module, $testcase)> for more details.
+
+Takes a string (message tag) and a reference to a hash (arguments).
+
+Returns a L<Zonemaster::Engine::Logger::Entry> object.
+
+=back
+
+=cut
+
+sub _emit_log { my ( $tag, $argref ) = @_; return Zonemaster::Engine->logger->add( $tag, $argref, 'Delegation' ); }
+
+=over
+
+=item _ip_disabled_message()
+
+    my $bool = _ip_disabled_message( $logentry_array_ref, $ns, @query_type_array );
+
+Checks if the IP version of a given name server is allowed to be queried. If not, it adds a logging message and returns true. Else, it returns false.
+
+Takes a reference to an array of L<Zonemaster::Engine::Logger::Entry> objects, a L<Zonemaster::Engine::Nameserver> object and an array of strings (query type).
+
+Returns a boolean.
+
+=back
+
+=cut
 
 sub _ip_disabled_message {
     my ( $results_array, $ns, @rrtypes ) = @_;
 
     if ( not Zonemaster::Engine::Profile->effective->get(q{net.ipv6}) and $ns->address->version == $IP_VERSION_6 ) {
         push @$results_array, map {
-          info(
+          _emit_log(
             IPV6_DISABLED => {
                 ns     => $ns->string,
                 rrtype => $_
@@ -375,7 +466,7 @@ sub _ip_disabled_message {
 
     if ( not Zonemaster::Engine::Profile->effective->get(q{net.ipv4}) and $ns->address->version == $IP_VERSION_4 ) {
         push @$results_array, map {
-          info(
+          _emit_log(
             IPV4_DISABLED => {
                 ns     => $ns->string,
                 rrtype => $_,
@@ -387,128 +478,54 @@ sub _ip_disabled_message {
     return 0;
 }
 
-###
-### Tests
-###
+=over
 
-sub delegation01 {
-    my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+=item _max_length_name_for()
 
-    # Determine delegation NS names
-    my @del_nsnames = map { $_->string } @{ Zonemaster::Engine::TestMethods->method2( $zone ) };
-    my $del_nsnames_args = {
-        count       => scalar( @del_nsnames ),
-        minimum     => $MINIMUM_NUMBER_OF_NAMESERVERS,
-        nsname_list => join( q{;}, sort @del_nsnames ),
-    };
+    my $name_string = _max_length_name_for( $name );
 
-    # Check delegation NS names
-    if ( scalar( @del_nsnames ) >= $MINIMUM_NUMBER_OF_NAMESERVERS ) {
-        push @results, info( ENOUGH_NS_DEL => $del_nsnames_args );
-    }
-    else {
-        push @results, info( NOT_ENOUGH_NS_DEL => $del_nsnames_args );
-    }
+Makes up a name of maximum length in the given domain name. Used as an helper function for Test Case L<Delegation03|/delegation03()>.
 
-    # Determine child NS names
-    my @child_nsnames = map { $_->string } @{ Zonemaster::Engine::TestMethods->method3( $zone ) };
-    my $child_nsnames_args = {
-        count       => scalar( @child_nsnames ),
-        minimum     => $MINIMUM_NUMBER_OF_NAMESERVERS,
-        nsname_list => join( q{;}, sort @child_nsnames ),
-    };
+Takes a L<Zonemaster::Engine::DNSName> object.
 
-    # Check child NS names
-    if ( scalar( @child_nsnames ) >= $MINIMUM_NUMBER_OF_NAMESERVERS ) {
-        push @results, info( ENOUGH_NS_CHILD => $child_nsnames_args );
-    }
-    else {
-        push @results, info( NOT_ENOUGH_NS_CHILD => $child_nsnames_args );
+Returns a string.
+
+=back
+
+=cut
+
+sub _max_length_name_for {
+    my ( $top ) = @_;
+    my @chars = q{A} .. q{Z};
+
+    my $name = name( $top )->fqdn;
+    $name = q{} if $name eq q{.};    # Special case for root zone
+
+    while ( length( $name ) < $FQDN_MAX_LENGTH - 1 ) {
+        my $len = $FQDN_MAX_LENGTH - length( $name ) - 1;
+        $len = $LABEL_MAX_LENGTH if $len > $LABEL_MAX_LENGTH;
+        $name = join( q{}, map { $chars[ rand @chars ] } 1 .. $len ) . q{.} . $name;
     }
 
-    # Determine child NS names with addresses
-    my @child_ns = @{ Zonemaster::Engine::TestMethods->method5( $zone ) };
-    my @child_ns_ipv4 = uniq map { $_->name->string } grep { $_->address->version == 4 } @child_ns;
-    my @child_ns_ipv6 = uniq map { $_->name->string } grep { $_->address->version == 6 } @child_ns;
-    my @child_ns_ipv4_addrs = uniq map { $_->address->ip } grep { $_->address->version == 4 } @child_ns;
-    my @child_ns_ipv6_addrs = uniq map { $_->address->short } grep { $_->address->version == 6 } @child_ns;
+    return $name;
+}
 
-    my $child_ns_ipv4_args = {
-        count       => scalar( @child_ns_ipv4 ),
-        minimum     => $MINIMUM_NUMBER_OF_NAMESERVERS,
-        nsname_list => join( q{;}, sort @child_ns_ipv4 ),
-        ns_ip_list  => join( q{;}, sort @child_ns_ipv4_addrs ),
-    };
-    my $child_ns_ipv6_args = {
-        count       => scalar( @child_ns_ipv6 ),
-        minimum     => $MINIMUM_NUMBER_OF_NAMESERVERS,
-        nsname_list => join( q{;}, sort @child_ns_ipv6 ),
-        ns_ip_list  => join( q{;}, sort @child_ns_ipv6_addrs ),
-    };
+=over
 
-    if ( scalar( @child_ns_ipv4 ) >= $MINIMUM_NUMBER_OF_NAMESERVERS ) {
-        push @results, info( ENOUGH_IPV4_NS_CHILD => $child_ns_ipv4_args );
-    }
-    elsif ( scalar( @child_ns_ipv4 ) > 0 ) {
-        push @results, info( NOT_ENOUGH_IPV4_NS_CHILD => $child_ns_ipv4_args );
-    }
-    else {
-        push @results, info( NO_IPV4_NS_CHILD => $child_ns_ipv4_args );
-    }
+=item _find_dup_ns()
 
-    if ( scalar( @child_ns_ipv6 ) >= $MINIMUM_NUMBER_OF_NAMESERVERS ) {
-        push @results, info( ENOUGH_IPV6_NS_CHILD => $child_ns_ipv6_args );
-    }
-    elsif ( scalar( @child_ns_ipv6 ) > 0 ) {
-        push @results, info( NOT_ENOUGH_IPV6_NS_CHILD => $child_ns_ipv6_args );
-    }
-    else {
-        push @results, info( NO_IPV6_NS_CHILD => $child_ns_ipv6_args );
-    }
+    my @logentry_array = _find_dup_ns( %hash );
 
-    # Determine delegation NS names with addresses
-    my @del_ns = @{ Zonemaster::Engine::TestMethods->method4( $zone ) };
-    my @del_ns_ipv4 = uniq map { $_->name->string } grep { $_->address->version == 4 } @del_ns;
-    my @del_ns_ipv6 = uniq map { $_->name->string } grep { $_->address->version == 6 } @del_ns;
-    my @del_ns_ipv4_addrs = uniq map { $_->address->ip } grep { $_->address->version == 4 } @del_ns;
-    my @del_ns_ipv6_addrs = uniq map { $_->address->short } grep { $_->address->version == 6 } @del_ns;
+Checks if given name servers have distinct IP addresses. Used as an helper function for Test Case L<Delegation02|/delegation02()>.
 
-    my $del_ns_ipv4_args = {
-        count       => scalar( @del_ns_ipv4 ),
-        minimum     => $MINIMUM_NUMBER_OF_NAMESERVERS,
-        nsname_list => join( q{;}, sort @del_ns_ipv4 ),
-        ns_ip_list  => join( q{;}, sort @del_ns_ipv4_addrs ),
-    };
-    my $del_ns_ipv6_args = {
-        count       => scalar( @del_ns_ipv6 ),
-        minimum     => $MINIMUM_NUMBER_OF_NAMESERVERS,
-        nsname_list => join( q{;}, sort @del_ns_ipv6 ),
-        ns_ip_list  => join( q{;}, sort @del_ns_ipv6_addrs ),
-    };
+Takes a hash - the keys of which are C<duplicate_tag>, C<distinct_tag> and C<ns_list>, and their corresponding values are a string,
+a string and a reference to an array of L<Zonemaster::Engine::Nameserver> objects, respectively.
 
-    if ( scalar( @del_ns_ipv4 ) >= $MINIMUM_NUMBER_OF_NAMESERVERS ) {
-        push @results, info( ENOUGH_IPV4_NS_DEL => $del_ns_ipv4_args );
-    }
-    elsif ( scalar( @del_ns_ipv4 ) > 0 ) {
-        push @results, info( NOT_ENOUGH_IPV4_NS_DEL => $del_ns_ipv4_args );
-    }
-    else {
-        push @results, info( NO_IPV4_NS_DEL => $del_ns_ipv4_args );
-    }
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
 
-    if ( scalar( @del_ns_ipv6 ) >= $MINIMUM_NUMBER_OF_NAMESERVERS ) {
-        push @results, info( ENOUGH_IPV6_NS_DEL => $del_ns_ipv6_args );
-    }
-    elsif ( scalar( @del_ns_ipv6 ) > 0 ) {
-        push @results, info( NOT_ENOUGH_IPV6_NS_DEL => $del_ns_ipv6_args );
-    }
-    else {
-        push @results, info( NO_IPV6_NS_DEL => $del_ns_ipv6_args );
-    }
+=back
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
-} ## end sub delegation01
+=cut
 
 sub _find_dup_ns {
     my %args          = @_;
@@ -532,7 +549,7 @@ sub _find_dup_ns {
     foreach my $local_ip ( sort keys %ips ) {
         if ( scalar @{ $ips{$local_ip} } > 1 ) {
             push @results,
-              info(
+              _emit_log(
                 $duplicate_tag => {
                     nsname_list => join( q{;}, @{ $ips{$local_ip} } ),
                     ns_ip       => $local_ip,
@@ -542,15 +559,164 @@ sub _find_dup_ns {
     }
 
     if ( @nss && !@results ) {
-        push @results, info( $distinct_tag => {} );
+        push @results, _emit_log( $distinct_tag => {} );
     }
 
     return @results;
 }
 
+=head1 TESTS
+
+=over
+
+=item delegation01()
+
+    my @logentry_array = delegation01( $zone );
+
+Runs the L<Delegation01 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Delegation-TP/delegation01.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
+
+sub delegation01 {
+    my ( $class, $zone ) = @_;
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Delegation01';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
+
+    # Determine delegation NS names
+    my @del_nsnames = map { $_->string } @{ Zonemaster::Engine::TestMethods->method2( $zone ) };
+    my $del_nsnames_args = {
+        count       => scalar( @del_nsnames ),
+        minimum     => $MINIMUM_NUMBER_OF_NAMESERVERS,
+        nsname_list => join( q{;}, sort @del_nsnames ),
+    };
+
+    # Check delegation NS names
+    if ( scalar( @del_nsnames ) >= $MINIMUM_NUMBER_OF_NAMESERVERS ) {
+        push @results, _emit_log( ENOUGH_NS_DEL => $del_nsnames_args );
+    }
+    else {
+        push @results, _emit_log( NOT_ENOUGH_NS_DEL => $del_nsnames_args );
+    }
+
+    # Determine child NS names
+    my @child_nsnames = map { $_->string } @{ Zonemaster::Engine::TestMethods->method3( $zone ) };
+    my $child_nsnames_args = {
+        count       => scalar( @child_nsnames ),
+        minimum     => $MINIMUM_NUMBER_OF_NAMESERVERS,
+        nsname_list => join( q{;}, sort @child_nsnames ),
+    };
+
+    # Check child NS names
+    if ( scalar( @child_nsnames ) >= $MINIMUM_NUMBER_OF_NAMESERVERS ) {
+        push @results, _emit_log( ENOUGH_NS_CHILD => $child_nsnames_args );
+    }
+    else {
+        push @results, _emit_log( NOT_ENOUGH_NS_CHILD => $child_nsnames_args );
+    }
+
+    # Determine child NS names with addresses
+    my @child_ns = @{ Zonemaster::Engine::TestMethods->method5( $zone ) };
+    my @child_ns_ipv4 = map { $_ } grep { $_->address->version == 4 } @child_ns;
+    my @child_ns_ipv6 = map { $_ } grep { $_->address->version == 6 } @child_ns;
+
+    my $child_ns_ipv4_args = {
+        count       => scalar( uniq map { $_->name->string } @child_ns_ipv4 ),
+        minimum     => $MINIMUM_NUMBER_OF_NAMESERVERS,
+        ns_list => join( q{;}, sort map { $_->string } @child_ns_ipv4 ),
+    };
+    my $child_ns_ipv6_args = {
+        count       => scalar( uniq map { $_->name->string } @child_ns_ipv6 ),
+        minimum     => $MINIMUM_NUMBER_OF_NAMESERVERS,
+        ns_list => join( q{;}, sort map { $_->string } @child_ns_ipv6 ),
+    };
+
+    if ( scalar( uniq map { $_->name->string } @child_ns_ipv4 ) >= $MINIMUM_NUMBER_OF_NAMESERVERS ) {
+        push @results, _emit_log( ENOUGH_IPV4_NS_CHILD => $child_ns_ipv4_args );
+    }
+    elsif ( scalar( uniq map { $_->name->string } @child_ns_ipv4 ) > 0 ) {
+        push @results, _emit_log( NOT_ENOUGH_IPV4_NS_CHILD => $child_ns_ipv4_args );
+    }
+    else {
+        push @results, _emit_log( NO_IPV4_NS_CHILD => $child_ns_ipv4_args );
+    }
+
+    if ( scalar( uniq map { $_->name->string } @child_ns_ipv6 ) >= $MINIMUM_NUMBER_OF_NAMESERVERS ) {
+        push @results, _emit_log( ENOUGH_IPV6_NS_CHILD => $child_ns_ipv6_args );
+    }
+    elsif ( scalar( uniq map { $_->name->string } @child_ns_ipv6 ) > 0 ) {
+        push @results, _emit_log( NOT_ENOUGH_IPV6_NS_CHILD => $child_ns_ipv6_args );
+    }
+    else {
+        push @results, _emit_log( NO_IPV6_NS_CHILD => $child_ns_ipv6_args );
+    }
+
+    # Determine delegation NS names with addresses
+    my @del_ns = @{ Zonemaster::Engine::TestMethods->method4( $zone ) };
+    my @del_ns_ipv4 = map { $_ } grep { $_->address->version == 4 } @del_ns;
+    my @del_ns_ipv6 = map { $_ } grep { $_->address->version == 6 } @del_ns;
+
+    my $del_ns_ipv4_args = {
+        count       => scalar( uniq map { $_->name->string } @del_ns_ipv4 ),
+        minimum     => $MINIMUM_NUMBER_OF_NAMESERVERS,
+        ns_list => join( q{;}, sort map { $_->string } @del_ns_ipv4 ),
+    };
+    my $del_ns_ipv6_args = {
+        count       => scalar( uniq map { $_->name->string } @del_ns_ipv6 ),
+        minimum     => $MINIMUM_NUMBER_OF_NAMESERVERS,
+        ns_list => join( q{;}, sort map { $_->string } @del_ns_ipv6 ),
+    };
+
+    if ( scalar( uniq map { $_->name->string } @del_ns_ipv4 ) >= $MINIMUM_NUMBER_OF_NAMESERVERS ) {
+        push @results, _emit_log( ENOUGH_IPV4_NS_DEL => $del_ns_ipv4_args );
+    }
+    elsif ( scalar( uniq map { $_->name->string } @del_ns_ipv4 ) > 0 ) {
+        push @results, _emit_log( NOT_ENOUGH_IPV4_NS_DEL => $del_ns_ipv4_args );
+    }
+    else {
+        push @results, _emit_log( NO_IPV4_NS_DEL => $del_ns_ipv4_args );
+    }
+
+    if ( scalar( uniq map { $_->name->string } @del_ns_ipv6 ) >= $MINIMUM_NUMBER_OF_NAMESERVERS ) {
+        push @results, _emit_log( ENOUGH_IPV6_NS_DEL => $del_ns_ipv6_args );
+    }
+    elsif ( scalar( uniq map { $_->name->string } @del_ns_ipv6 ) > 0 ) {
+        push @results, _emit_log( NOT_ENOUGH_IPV6_NS_DEL => $del_ns_ipv6_args );
+    }
+    else {
+        push @results, _emit_log( NO_IPV6_NS_DEL => $del_ns_ipv6_args );
+    }
+
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
+} ## end sub delegation01
+
+=over
+
+=item delegation02()
+
+    my @logentry_array = delegation02( $zone );
+
+Runs the L<Delegation02 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Delegation-TP/delegation02.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
+
 sub delegation02 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Delegation02';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
 
     my @nss_del   = @{ Zonemaster::Engine::TestMethods->method4( $zone ) };
     my @nss_child = @{ Zonemaster::Engine::TestMethods->method5( $zone ) };
@@ -576,12 +742,30 @@ sub delegation02 {
         ns_list       => [ @nss_del, @nss_child ],
       );
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub delegation02
+
+=over
+
+=item delegation03()
+
+    my @logentry_array = delegation03( $zone );
+
+Runs the L<Delegation03 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Delegation-TP/delegation03.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub delegation03 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Delegation03';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
 
     my $long_name = _max_length_name_for( $zone->name );
     my @nsnames   = map { $_->string } @{ Zonemaster::Engine::TestMethods->method2( $zone ) };
@@ -613,7 +797,7 @@ sub delegation03 {
     my $size = length( $p->data );
     if ( $size > $UDP_PAYLOAD_LIMIT ) {
         push @results,
-          info(
+          _emit_log(
             REFERRAL_SIZE_TOO_LARGE => {
                 size => $size,
             }
@@ -621,19 +805,37 @@ sub delegation03 {
     }
     else {
         push @results,
-          info(
+          _emit_log(
             REFERRAL_SIZE_OK => {
                 size => $size,
             }
           );
     }
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub delegation03
+
+=over
+
+=item delegation04()
+
+    my @logentry_array = delegation04( $zone );
+
+Runs the L<Delegation04 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Delegation-TP/delegation04.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub delegation04 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Delegation04';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
     my %nsnames;
     my @authoritatives;
     my $query_type = q{SOA};
@@ -653,7 +855,7 @@ sub delegation04 {
             if ( $p ) {
                 if ( not $p->aa ) {
                     push @results,
-                      info(
+                      _emit_log(
                         IS_NOT_AUTHORITATIVE => {
                             ns    => $local_ns->string,
                             proto => $usevc ? q{TCP} : q{UDP},
@@ -679,19 +881,37 @@ sub delegation04 {
       )
     {
         push @results,
-          info(
+          _emit_log(
             ARE_AUTHORITATIVE => {
                 nsname_list => join( q{;}, uniq sort @authoritatives ),
             }
           );
     }
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub delegation04
+
+=over
+
+=item delegation05()
+
+    my @logentry_array = delegation05( $zone );
+
+Runs the L<Delegation05 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Delegation-TP/delegation05.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub delegation05 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Delegation05';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
 
     my @nsnames = @{ Zonemaster::Engine::TestMethods->method2and3( $zone ) };
 
@@ -705,8 +925,9 @@ sub delegation05 {
             for my $key ( sort keys %nss ) {
                 my $ns = $nss{$key};
                 my $ns_args = {
-                    ns     => $ns->string,
-                    rrtype => q{A},
+                    ns         => $ns->string,
+                    query_name => $local_nsname,
+                    rrtype     => q{A},
                 };
 
                 if ( _ip_disabled_message( \@results, $ns, q{A} ) ) {
@@ -715,22 +936,22 @@ sub delegation05 {
 
                 my $p = $ns->query( $local_nsname, q{A}, { recurse => 0 } );
                 if ( not $p ) {
-                    push @results, info( NO_RESPONSE => $ns_args );
+                    push @results, _emit_log( NO_RESPONSE => $ns_args );
                     next;
                 }
                 elsif ($p->rcode ne q{NOERROR} ) {
                     $ns_args->{rcode} = $p->rcode;
-                    push @results, info( UNEXPECTED_RCODE => $ns_args );
+                    push @results, _emit_log( UNEXPECTED_RCODE => $ns_args );
                     next;
                 }
                 elsif ( scalar $p->get_records( q{CNAME}, q{answer} ) > 0 ) {
-                    push @results, info( NS_IS_CNAME => { nsname => $local_nsname } );
+                    push @results, _emit_log( NS_IS_CNAME => { nsname => $local_nsname } );
                     next;
                 }
                 elsif ($p->is_redirect) {
                     my $p = $ns->query( $local_nsname, q{A}, { recurse => 1 } );
                     if ( defined $p and scalar $p->get_records( q{CNAME}, q{answer} ) > 0 ) {
-                        push @results, info( NS_IS_CNAME => { nsname => $local_nsname } );
+                        push @results, _emit_log( NS_IS_CNAME => { nsname => $local_nsname } );
                     }
                 }
             }
@@ -738,21 +959,39 @@ sub delegation05 {
         else {
             my $p = Zonemaster::Engine::Recursor->recurse( $local_nsname, q{A} );
             if ( defined $p and scalar $p->get_records( q{CNAME}, q{answer} ) > 0 ) {
-                push @results, info( NS_IS_CNAME => { nsname => $local_nsname } );
+                push @results, _emit_log( NS_IS_CNAME => { nsname => $local_nsname } );
             }
         }
     }
 
     if ( not grep { $_->tag eq q{NS_IS_CNAME} } @results ) {
-        push @results, info( NO_NS_CNAME => {} );
+        push @results, _emit_log( NO_NS_CNAME => {} );
     }
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub delegation05
+
+=over
+
+=item delegation06()
+
+    my @logentry_array = delegation06( $zone );
+
+Runs the L<Delegation06 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Delegation-TP/delegation06.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub delegation06 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Delegation06';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
     my %nsnames;
     my $query_type = q{SOA};
 
@@ -769,7 +1008,7 @@ sub delegation06 {
         my $p = $local_ns->query( $zone->name, $query_type );
         if ( $p and $p->rcode eq q{NOERROR} ) {
             if ( not $p->get_records( $query_type, q{answer} ) ) {
-                push @results, info( SOA_NOT_EXISTS => { ns => $local_ns->string } );
+                push @results, _emit_log( SOA_NOT_EXISTS => { ns => $local_ns->string } );
             }
         }
 
@@ -784,15 +1023,33 @@ sub delegation06 {
         and not grep { $_->tag ne q{TEST_CASE_START} } @results
       )
     {
-        push @results, info( SOA_EXISTS => {} );
+        push @results, _emit_log( SOA_EXISTS => {} );
     }
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub delegation06
+
+=over
+
+=item delegation07()
+
+    my @logentry_array = delegation07( $zone );
+
+Runs the L<Delegation07 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Delegation-TP/delegation07.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub delegation07 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Delegation07';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
 
     my %names;
     foreach my $name ( @{ Zonemaster::Engine::TestMethods->method2( $zone ) } ) {
@@ -808,7 +1065,7 @@ sub delegation07 {
 
     if ( @extra_name_parent ) {
         push @results,
-          info(
+          _emit_log(
             EXTRA_NAME_PARENT => {
                 extra => join( q{;}, sort @extra_name_parent ),
             }
@@ -817,7 +1074,7 @@ sub delegation07 {
 
     if ( @extra_name_child ) {
         push @results,
-          info(
+          _emit_log(
             EXTRA_NAME_CHILD => {
                 extra => join( q{;}, sort @extra_name_child ),
             }
@@ -826,7 +1083,7 @@ sub delegation07 {
 
     if ( @extra_name_parent == 0 and @extra_name_child == 0 ) {
         push @results,
-          info(
+          _emit_log(
             NAMES_MATCH => {
                 names => join( q{;}, sort @same_name ),
             }
@@ -835,7 +1092,7 @@ sub delegation07 {
 
     if ( scalar( @same_name ) == 0 ) {
         push @results,
-          info(
+          _emit_log(
             TOTAL_NAME_MISMATCH => {
                 glue  => join( q{;}, sort @extra_name_parent ),
                 child => join( q{;}, sort @extra_name_child ),
@@ -843,95 +1100,7 @@ sub delegation07 {
           );
     }
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub delegation07
 
-###
-### Helper functions
-###
-
-# Make up a name of maximum length in the given domain
-sub _max_length_name_for {
-    my ( $top ) = @_;
-    my @chars = q{A} .. q{Z};
-
-    my $name = name( $top )->fqdn;
-    $name = q{} if $name eq q{.};    # Special case for root zone
-
-    while ( length( $name ) < $FQDN_MAX_LENGTH - 1 ) {
-        my $len = $FQDN_MAX_LENGTH - length( $name ) - 1;
-        $len = $LABEL_MAX_LENGTH if $len > $LABEL_MAX_LENGTH;
-        $name = join( q{}, map { $chars[ rand @chars ] } 1 .. $len ) . q{.} . $name;
-    }
-
-    return $name;
-}
-
 1;
-
-=head1 NAME
-
-Zonemaster::Engine::Test::Delegation - Tests regarding delegation details
-
-=head1 SYNOPSIS
-
-    my @results = Zonemaster::Engine::Test::Delegation->all($zone);
-
-=head1 METHODS
-
-=over
-
-=item all($zone)
-
-Runs the default set of tests and returns a list of log entries made by the tests.
-
-=item tag_descriptions()
-
-Returns a refernce to a hash with translation functions. Used by the builtin translation system.
-
-=item metadata()
-
-Returns a reference to a hash, the keys of which are the names of all test methods in the module, and the corresponding values are references to
-lists with all the tags that the method can use in log entries.
-
-=item version()
-
-Returns a version string for the module.
-
-=back
-
-=head1 TESTS
-
-=over
-
-=item delegation01($zone)
-
-Verify that there is more than two nameserver.
-
-=item delegation02($zone)
-
-Verify that name servers have distinct IP addresses.
-
-=item delegation03($zone)
-
-Verify that there is no truncation on referrals.
-
-=item delegation04($zone)
-
-Verify that nameservers are authoritative.
-
-=item delegation05($zone)
-
-Verify that NS RRs do not points to CNAME alias.
-
-=item delegation06($zone)
-
-Verify existence of SOA.
-
-=item delegation07($zone)
-
-Verify that parent glue name records are present in child.
-
-=back
-
-=cut

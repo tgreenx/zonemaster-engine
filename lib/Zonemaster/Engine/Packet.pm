@@ -1,47 +1,60 @@
 package Zonemaster::Engine::Packet;
 
-use version; our $VERSION = version->declare("v1.0.5");
-
-use 5.014002;
+use v5.16.0;
 use warnings;
 
-use Moose;
+use version; our $VERSION = version->declare("v1.0.5");
+
+use Class::Accessor 'antlers';
+use Carp qw( confess );
 use Zonemaster::Engine::Util;
 
 has 'packet' => (
-    is       => 'ro',
-    isa      => 'Zonemaster::LDNS::Packet',
-    required => 1,
-    handles  => [
-        qw(
-          data
-          rcode
-          aa
-          ra
-	  tc
-          question
-          answer
-          authority
-          additional
-          print
-          string
-          answersize
-          unique_push
-          timestamp
-          type
-          edns_size
-          edns_rcode
-          edns_version
-          edns_z
-          edns_data
-          has_edns
-          id
-          querytime
-          do
-          opcode
-          )
-    ]
+    is  => 'ro',
+    isa => 'Zonemaster::LDNS::Packet',
 );
+
+sub new {
+    my $proto = shift;
+    my $class = ref $proto || $proto;
+    my $attrs = shift;
+
+    my $packet = delete $attrs->{packet};
+    if ( %$attrs ) {
+        confess "unexpected arguments: " . join ', ', sort keys %$attrs;
+    }
+
+    return Class::Accessor::new( $class, { packet => $packet } );
+}
+
+sub timestamp    { my ( $self, $time )    = @_; return $self->packet->timestamp( $time       // () ); }
+sub querytime    { my ( $self, $value )   = @_; return $self->packet->querytime( $value      // () ); }
+sub id           { my ( $self, $id )      = @_; return $self->packet->id( $id                // () ); }
+sub opcode       { my ( $self, $string )  = @_; return $self->packet->opcode( $string        // () ); }
+sub rcode        { my ( $self, $string )  = @_; return $self->packet->rcode( $string         // () ); }
+sub edns_version { my ( $self, $version ) = @_; return $self->packet->edns_version( $version // () ); }
+
+sub type       { my ( $self ) = @_; return $self->packet->type; }
+sub string     { my ( $self ) = @_; return $self->packet->string; }
+sub data       { my ( $self ) = @_; return $self->packet->data; }
+sub aa         { my ( $self ) = @_; return $self->packet->aa; }
+sub do         { my ( $self ) = @_; return $self->packet->do; }
+sub ra         { my ( $self ) = @_; return $self->packet->ra; }
+sub tc         { my ( $self ) = @_; return $self->packet->tc; }
+sub question   { my ( $self ) = @_; return $self->packet->question; }
+sub authority  { my ( $self ) = @_; return $self->packet->authority; }
+sub answer     { my ( $self ) = @_; return $self->packet->answer; }
+sub additional { my ( $self ) = @_; return $self->packet->additional; }
+sub edns_size  { my ( $self ) = @_; return $self->packet->edns_size; }
+sub edns_rcode { my ( $self ) = @_; return $self->packet->edns_rcode; }
+sub edns_data  { my ( $self ) = @_; return $self->packet->edns_data; }
+sub edns_z     { my ( $self ) = @_; return $self->packet->edns_z; }
+sub has_edns   { my ( $self ) = @_; return $self->packet->has_edns; }
+
+sub unique_push {
+    my ( $self, $section, $rr ) = @_;
+    return $self->packet->unique_push( $section, $rr );
+}
 
 sub no_such_record {
     my ( $self ) = @_;
@@ -94,26 +107,22 @@ sub is_redirect {
 
 sub get_records {
     my ( $self, $type, @section ) = @_;
+    @section = qw(answer authority additional) if !@section;
     my %sec = map { lc( $_ ) => 1 } @section;
     my @raw;
-
-    if ( !@section ) {
-        @raw = ( $self->packet->answer, $self->packet->authority, $self->packet->additional );
-    }
+    $type = uc( $type );
 
     if ( $sec{'answer'} ) {
-        push @raw, $self->packet->answer;
+        push @raw, grep { $_->type eq $type } $self->packet->answer;
     }
 
     if ( $sec{'authority'} ) {
-        push @raw, $self->packet->authority;
+        push @raw, grep { $_->type eq $type } $self->packet->authority;
     }
 
     if ( $sec{'additional'} ) {
-        push @raw, $self->packet->additional;
+        push @raw, grep { $_->type eq $type } $self->packet->additional;
     }
-
-    @raw = grep { $_->type eq uc( $type ) } @raw;
 
     return @raw;
 } ## end sub get_records
@@ -121,13 +130,19 @@ sub get_records {
 sub get_records_for_name {
     my ( $self, $type, $name, @section ) = @_;
 
-    return grep { name( $_->name ) eq name( $name ) } $self->get_records( $type, @section );
+    # Make sure $name is a Zonemaster::Engine::DNSName
+    $name = name( $name );
+
+    return grep { name( $_->name ) eq $name } $self->get_records( $type, @section );
 }
 
 sub has_rrs_of_type_for_name {
-    my ( $self, $type, $name ) = @_;
+    my ( $self, $type, $name, @section ) = @_;
 
-    return ( grep { name( $_->name ) eq name( $name ) } $self->get_records( $type ) ) > 0;
+    # Make sure $name is a Zonemaster::Engine::DNSName
+    $name = name( $name );
+
+    return ( grep { name( $_->name ) eq $name } $self->get_records( $type, @section ) ) > 0;
 }
 
 sub answerfrom {
@@ -147,9 +162,6 @@ sub TO_JSON {
 
     return { 'Zonemaster::Engine::Packet' => $self->packet };
 }
-
-no Moose;
-__PACKAGE__->meta->make_immutable;
 
 1;
 
@@ -172,6 +184,16 @@ Holds the L<Zonemaster::LDNS::Packet> the object is wrapping.
 
 =back
 
+=head1 CONSTRUCTORS
+
+=over
+
+=item new
+
+Construct a new instance.
+
+=back
+
 =head1 METHODS
 
 =over
@@ -182,7 +204,7 @@ Returns true if the packet represents an existing DNS node lacking any records o
 
 =item no_such_name
 
-Returns true if the packet represents a non-existent DNS node.
+Returns true if the packet represents a nonexistent DNS node.
 
 =item is_redirect
 
@@ -200,13 +222,15 @@ Returns all L<Zonemaster::LDNS::RR> objects for the given name in the packet.
 If the optional C<@section> argument is given, and is a list of C<answer>,
 C<authority> and C<additional>, only RRs from those sections are returned.
 
-=item has_rrs_of_type_for_name($type, $name)
+=item has_rrs_of_type_for_name($type, $name[, @section])
 
 Returns true if the packet holds any RRs of the specified type for the given name.
+If the optional C<@section> argument is given, and is a list of C<answer>,
+C<authority> and C<additional>, only RRs from those sections are returned.
 
 =item answerfrom
 
-Wrapper for the underlying packet method, that replaces udnefined values with the string C<E<lt>unknownE<gt>>.
+Wrapper for the underlying packet method, that replaces undefined values with the string C<E<lt>unknownE<gt>>.
 
 =item TO_JSON
 
@@ -220,104 +244,50 @@ These methods are passed through transparently to the underlying L<Zonemaster::L
 
 =over
 
-=item *
+=item data
 
-data
+=item rcode
 
-=item *
+=item aa
 
-rcode
+=item ra
 
-=item *
+=item tc
 
-aa
+=item question
 
-=item *
+=item answer
 
-ra
+=item authority
 
-=item *
+=item additional
 
-tc
+=item string
 
-=item *
+=item unique_push
 
-question
+=item timestamp
 
-=item *
+=item type
 
-answer
+=item edns_size
 
-=item *
+=item edns_rcode
 
-authority
+=item edns_version
 
-=item *
+=item edns_z
 
-additional
+=item edns_data
 
-=item *
+=item has_edns
 
-print
+=item id
 
-=item *
+=item querytime
 
-string
+=item do
 
-=item *
-
-answersize
-
-=item *
-
-unique_push
-
-=item *
-
-timestamp
-
-=item *
-
-type
-
-=item *
-
-edns_size
-
-=item *
-
-edns_rcode
-
-=item *
-
-edns_version
-
-=item *
-
-edns_z
-
-=item *
-
-edns_data
-
-=item *
-
-has_edns
-
-=item *
-
-id
-
-=item *
-
-querytime
-
-=item *
-
-do
-
-=item *
-
-opcode
+=item opcode
 
 =back

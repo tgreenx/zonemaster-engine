@@ -1,33 +1,51 @@
 package Zonemaster::Engine::Logger;
 
-use 5.014002;
-
-use strict;
+use v5.16.0;
 use warnings;
 
 use version; our $VERSION = version->declare("v1.0.8");
 
-use Moose;
+use Class::Accessor "antlers";
 
+use Carp qw( confess );
+use Data::Dumper;
+use JSON::PP;
 use List::MoreUtils qw[none any];
 use Scalar::Util qw[blessed];
-use JSON::PP;
-
 use Zonemaster::Engine::Profile;
 use Zonemaster::Engine::Logger::Entry;
 
+our $TEST_CASE_NAME = 'Unspecified';
+our $MODULE_NAME = 'System';
+
 has 'entries' => (
-    is      => 'ro',
-    isa     => 'ArrayRef[Zonemaster::Engine::Logger::Entry]',
-    default => sub { [] }
+    is  => 'ro',
+    isa => 'ArrayRef[Zonemaster::Engine::Logger::Entry]',
 );
-has 'callback' => ( is => 'rw', isa => 'CodeRef', required => 0, clearer => 'clear_callback' );
+has 'callback' => (
+    is  => 'rw',
+    isa => 'CodeRef',
+);
+
+my $logfilter;
+
+sub new {
+    my $proto = shift;
+    confess "must be called without arguments"
+      if scalar( @_ ) != 0;
+
+    my $class = ref $proto || $proto;
+    return Class::Accessor::new( $class, { entries => [] } );
+}
 
 sub add {
-    my ( $self, $tag, $argref ) = @_;
+    my ( $self, $tag, $argref, $module, $testcase ) = @_;
+
+    $module //= $MODULE_NAME;
+    $testcase //= $TEST_CASE_NAME;
 
     my $new =
-      Zonemaster::Engine::Logger::Entry->new( { tag => uc( $tag ), args => $argref } );
+      Zonemaster::Engine::Logger::Entry->new( { tag => uc( $tag ), args => $argref, testcase => $testcase, module => $module } );
     $self->_check_filter( $new );
     push @{ $self->entries }, $new;
 
@@ -39,7 +57,7 @@ sub add {
                 die $err;
             }
             else {
-                $self->clear_callback;
+                $self->callback( undef );
                 $self->add( LOGGER_CALLBACK_ERROR => { exception => $err } );
             }
         }
@@ -50,12 +68,15 @@ sub add {
 
 sub _check_filter {
     my ( $self, $entry ) = @_;
-    my $config = Zonemaster::Engine::Profile->effective->get(q{logfilter});
 
-    if ( $config ) {
-        if ( $config->{ $entry->module } ) {
+    if ( ! defined $logfilter ) {
+        $logfilter = Zonemaster::Engine::Profile->effective->get(q{logfilter});
+    }
+
+    if ( $logfilter ) {
+        if ( $logfilter->{ uc $entry->module } ) {
             my $match = 0;
-            foreach my $rule ( @{$config->{ $entry->module }{ $entry->tag }} ) {
+            foreach my $rule ( @{$logfilter->{ uc $entry->module }{ $entry->tag }} ) {
                 foreach my $key ( keys %{ $rule->{when} } ) {
                     my $cond = $rule->{when}{$key};
                     if ( ref( $cond ) and ref( $cond ) eq 'ARRAY' ) {
@@ -80,8 +101,8 @@ sub _check_filter {
                     last;
                 }
             }
-        } ## end if ( $config->{ $entry...})
-    } ## end if ( $config )
+        }
+    }
     return;
 } ## end sub _check_filter
 
@@ -91,6 +112,7 @@ sub start_time_now {
 }
 
 sub reset_config {
+    $logfilter = undef;
     Zonemaster::Engine::Logger::Entry->reset_config();
     return;
 }
@@ -145,9 +167,6 @@ sub json {
     return $json->encode( \@out );
 } ## end sub json
 
-no Moose;
-__PACKAGE__->meta->make_immutable;
-
 1;
 
 =head1 NAME
@@ -158,6 +177,18 @@ Zonemaster::Engine::Logger - class that holds L<Zonemaster::Engine::Logger::Entr
 
     my $logger = Zonemaster::Engine::Logger->new;
     $logger->add( TAG => {some => 'arguments'});
+
+=head1 CONSTRUCTORS
+
+=over
+
+=item new
+
+Construct a new object.
+
+    my $logger = Zonemaster::Engine::Logger->new;
+
+=back
 
 =head1 ATTRIBUTES
 
@@ -188,9 +219,19 @@ test run that logged the message.
 
 =over
 
-=item add($tag, $argref)
+=item add($tag, $argref, $module, $testcase)
 
 Adds an entry with the given tag and arguments to the logger object.
+
+C<$module> is optional and will default to
+C<$Zonemaster::Engine::Logger::MODULE_NAME> if not set.
+
+C<$testcase> is optional and will default to
+C<$Zonemaster::Engine::Logger::TEST_CASE_NAME> if not set.
+
+The variables C<$Zonemaster::Engine::Logger::MODULE_NAME> and
+C<$Zonemaster::Engine::Logger::TEST_CASE_NAME> can be dynamically set to
+change the default module ("System") or test case name ("Unspecified").
 
 =item json([$level])
 
@@ -204,7 +245,7 @@ Returns the maximum log level from the entire log as the level string.
 
 =back
 
-=head1 CLASS METHOD
+=head1 CLASS METHODS
 
 =over
 
@@ -219,6 +260,17 @@ Remove all known log entries.
 =item reset_config()
 
 Clear the test level cached configuration.
+
+=back
+
+=head1 SUBROUTINES
+
+=over
+
+=item _check_filter($entry)
+
+Apply the C<logfilter> defined rules to the entry. See
+L<Zonemaster::Engine::Profile/"logfilter">.
 
 =back
 

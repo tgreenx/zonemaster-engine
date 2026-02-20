@@ -1,8 +1,9 @@
 package Zonemaster::Engine;
 
-use version; our $VERSION = version->declare("v4.6.0");
+use v5.16.0;
+use warnings;
 
-use 5.014002;
+use version; our $VERSION = version->declare("v8.1.0");
 
 BEGIN {
     # Locale::TextDomain (<= 1.20) doesn't know about File::ShareDir so give a helping hand.
@@ -16,6 +17,7 @@ BEGIN {
 
 use Class::Accessor "antlers";
 use Carp;
+
 use Zonemaster::Engine::Nameserver;
 use Zonemaster::Engine::Logger;
 use Zonemaster::Engine::Profile;
@@ -35,7 +37,7 @@ my $init_done = 0;
 
 sub init_engine {
     return if $init_done++;
-    Zonemaster::Engine::Recursor::init_recursor;
+    Zonemaster::Engine::Recursor::init_recursor();
 }
 
 sub logger {
@@ -71,16 +73,16 @@ sub test_module {
 }
 
 sub test_method {
-    my ( $class, $module, $method, @arguments ) = @_;
+    my ( $class, $module, $method, $zname ) = @_;
 
-    return Zonemaster::Engine::Test->run_one( $module, $method, @arguments );
+    return Zonemaster::Engine::Test->run_one( $module, $method, $class->zone( $zname ) );
 }
 
 sub all_tags {
     my ( $class ) = @_;
     my @res;
 
-    foreach my $module ( 'Basic', sort { $a cmp $b } Zonemaster::Engine::Test->modules ) {
+    foreach my $module ( sort { $a cmp $b } Zonemaster::Engine::Test->modules ) {
         my $full = "Zonemaster::Engine::Test::$module";
         my $ref  = $full->metadata;
         foreach my $list ( values %{$ref} ) {
@@ -95,7 +97,7 @@ sub all_methods {
     my ( $class ) = @_;
     my %res;
 
-    foreach my $module ( 'Basic', Zonemaster::Engine::Test->modules ) {
+    foreach my $module ( Zonemaster::Engine::Test->modules ) {
         my $full = "Zonemaster::Engine::Test::$module";
         my $ref  = $full->metadata;
         foreach my $method ( sort { $a cmp $b } keys %{$ref} ) {
@@ -139,7 +141,7 @@ sub add_fake_delegation {
             if (   !@{ $href->{$name} }
                 && !$class->zone( $domain )->is_in_zone( $name ) )
             {
-                my @ips = Zonemaster::LDNS->new->name2addr( $name );
+                my @ips = map { $_->ip } Zonemaster::Engine::Recursor->get_addresses_for( $name );
                 push @{ $href->{$name} }, @ips;
                 if ( !@ips ) {
                     $incomplete_delegation = 1;
@@ -229,6 +231,7 @@ sub reset {
     Zonemaster::Engine::Nameserver->empty_cache();
     $logger->clear_history() if $logger;
     Zonemaster::Engine::Recursor->clear_cache();
+    Zonemaster::Engine::TestMethodsV2->clear_cache();
     return;
 }
 
@@ -250,7 +253,7 @@ This manual describes the main L<Zonemaster::Engine> module. If what you're afte
 
 =item init_engine()
 
-Run the inititalization tasks if they have not been run already. This method is called automatically in INIT block.
+Run the initialization tasks if they have not been run already. This method is called automatically in INIT block.
 
 =item test_zone($name)
 
@@ -260,11 +263,14 @@ Runs all available tests and returns a list of L<Zonemaster::Engine::Logger::Ent
 
 Runs all available tests for the zone with the given name in the specified module.
 
-=item test_method($module, $method, @arguments)
+=item test_method($module, $method, $name)
 
-Run one particular test method in one particular module. The requested module must be in the list of active loaded modules (that is, not the Basic
-module and not a module disabled by the current policy), and the method must be listed in the metadata the module exports. If those requirements
-are fulfilled, the method will be called with the provided arguments.
+Run one particular test method in one particular module for one particular zone.
+The requested module must be in the list of currently enabled modules (that is,
+not a module disabled by the current profile), and the method must be listed in
+the metadata of the module exports.
+If those requirements are fulfilled, the method will be called with the provided
+arguments.
 
 =item zone($name)
 
@@ -284,7 +290,7 @@ Returns the global L<Zonemaster::Engine::Logger> object.
 
 =item all_tags()
 
-Returns a list of all the tags that can be logged for all avilable test modules.
+Returns a list of all the tags that can be logged for all available test modules.
 
 =item all_methods()
 
@@ -310,23 +316,7 @@ L</save_cache()>.
 
 =item asn_lookup($ip)
 
-Takes a single IP address and returns one of three things:
-
-=over
-
-=item
-
-Nothing, if the IP address is not in any AS.
-
-=item
-
-If called in list context, a list of AS number and a L<Net::IP::XS> object representing the prefix it's in.
-
-=item
-
-If called in scalar context, only the AS number.
-
-=back
+Takes a single IP address (string or L<Net::IP::XS> object) and returns a list of AS numbers, if any.
 
 =item modules()
 
@@ -419,7 +409,8 @@ Set the logger's start time to the current time.
 =item reset()
 
 Reset logger start time to current time, empty the list of log messages, clear
-nameserver object cache and recursor cache.
+nameserver object cache, clear recursor cache and clear all cached results of
+MethodsV2.
 
 =back
 

@@ -1,6 +1,246 @@
 Release history for Zonemaster component Zonemaster-Engine
 
 
+v8.1.0 2025-12-17 (part of Zonemaster v2025.2 release)
+
+ [Deprecation]
+- Ignores and deprecates some profile properties. To be removed in
+  release v2026.1 (#1472)
+
+ [Features]
+- Updates test case implementations for Zone11, DNSSEC07, DNSSEC01, DNSSEC05,
+  and Address01 (#1477, #1476, #1474, #1473, #1453)
+- Implements new MethodV2 method to give more information
+  in relevant messages (#1475)
+
+ [Fixes]
+- Fixes error in MethodsV2 (#1470)
+- Updates French translation (#1464, #1482)
+
+
+v8.0.0 2025-06-26 (part of Zonemaster v2025.1 release)
+
+ [Breaking changes]
+- Changes the string representation of IPv6 addresses in "NS_CREATED"
+  messages #1420
+- Separates functions to trim whitespace and to normalize domain
+  name, respectively #1316
+
+ [Features]
+- Updates local copies of IANA special IP registries #1456
+- Lowers all WARNING to NOTICE for test case Zone01 #1455
+- Downgrades ERROR to WARNING in test case DNSSEC03 #1452
+- Improves performance by optimizing critical code sections #1420
+
+ [Fixes]
+- Updates translations (Danish, Norwegian) #1418, #1449
+- Updates Dockerfile for release 2025.1 #1460
+- Fixes test case DNSSEC10 for name servers sharing the same IPs #1457
+- Adds blacklisting log message #1434
+- Fixes alias (CNAME) handling in Address03 test case #1432
+
+
+v7.1.0 2025-03-04 (part of Zonemaster v2024.2.1 release)
+
+ [Release information]
+ - Translations have not been fully updated in this release. They will
+   be updated in an upcoming extra release.
+
+ [Features]
+- Adds translation to Slovenian language (#1385, #1435)
+
+ [Fixes]
+- Updates translations for Swedish, Spanish and French (#1416, #1417, #1430)
+- Corrects how EDNS buffer size is set through 'edns_details' (#1429)
+- Corrects how Test Cases use returned values from some TestMethodsV2
+  methods (#1427)
+- Updates implementation of test case DNSSEC10 (#1415)
+- Updates the name server blacklisting mechanism (#1423)
+- Fixes an infinite recursion bug when NS record points to CNAME (#1422)
+
+
+v7.0.0 2024-12-09 (part of Zonemaster v2024.2 release)
+
+ [Release information]
+ - Translations have not been fully updated in this release. They will
+   be updated in an upcoming extra release.
+
+ [Breaking change]
+ - Refactors ASNLookup code and documentation (#1257)
+
+ [Features]
+ - Changes default settings of queries (#1397)
+ - Updates DNSSEC10 implementation (#1396)
+ - Updates global cache and makes the feature being supported and not
+   experimental (#1394)
+ - Lowers the levels of ASN related messages from test case Connectivity03
+   (#1388)
+ - Updates MethodsV2 method to match new algorithm in test
+   case Basic01 (#1373)
+ - Adds CNAME followage in recursive lookups (#1288)
+ - Updates profile function (#1356)
+
+ [Fixes]
+ - Fixes abort condition for undelegated tests in the Basic module (#1401)
+ - Adds Try::Tiny in zonemaster-cli runtime Docker container (#1399)
+ - Fixes CDS and CDNSKEY RRsets comparison in test case DNSSEC15 (#1383)
+ - Removes test case Nameserver14 (never implemented) (#1390)
+ - Updates Connectivity04 implementation (#1393)
+ - Updates test case Delegation05 to include QNAME and QTYPE in diagnostics for
+   failed queries (#1392)
+ - Removes obsolete document (#1359)
+ - Resolves IP addresses directly from Engine for out-of-bailiwick names in fake
+   delegations (#1389)
+ - Fixes spelling errors (external contribution from @emollier) (#1378)
+ - Fixes barewords (external contribution from @emollier) (#1380)
+ - Fixes misspellings (external contribution from @jsoref) (#1366)
+
+
+v6.0.0 2024-07-01 (part of Zonemaster v2024.1 release)
+
+ [Release information]
+ - Translations have not been fully updated in this release. They will
+   be updated in an upcoming release.
+
+ [Breaking change]
+ - Removes planned deprecated 'resolver.source' profile property.
+   Breaks custom profiles using this property. Use 'resolver.source4'
+   and 'resolver.source6' instead. (#1343)
+ - Using 'profile.json' that comes with the Zonemaster::Engine
+   installation as a template for custom profile is no longer supported.
+   For the new supported way of extracting the default profile, see
+   https://github.com/zonemaster/zonemaster/blob/master/docs/public/configuration/profiles.md#default-profile (#1339)
+
+ [Features]
+ - Makes it possible to run single testcase via test_zone() (#1312)
+ - Updates Basic01 implementation (#1357)
+
+ [Fixes]
+ - Makes syntax04 take zone name instead of NS name (#1322, #1369)
+ - Removes the code dependency on Moose (#1319)
+ - Fixes Zonemaster::Engine::Translator’s instance() method (#1347)
+ - Fixes polymorphism in Translator (#1346)
+ - Adds minor changes to Zone11 msgids (#1348)
+ - Update minimum Perl version to 5.16.0 and add missing 'warnings' (#1342)
+ - Fixes undef eq comparison (#1363)
+
+
+v5.0.0 2024-03-18 (public release version)
+
+ [Release information]
+ - Translations have not been fully updated in this release. They will
+   be updated in an upcoming fix release.
+
+ [Breaking change]
+ - Removes deprecated features (#1309)
+
+ [Features]
+ - Adds global cache based on Redis (experimental) (#1201, #1327)
+ - Adds implementation of test case Zone11 (SPF test) (#1287)
+ - Removes implementation of Basic00 (#1308)
+
+ [Fixes]
+ - Updates implementation of test case Syntax06 (#1245)
+ - Refactors code (#1256, #1294, #1293, #1296, #1297, #1302)
+ - Improves documentation in Test modules (#1277)
+ - Updates implementation of test case Delegation01 (#1290)
+ - Fixes message tag log level for test case Zone08 (#1295)
+ - Updates unit tests for test cases Consistency05 and Consistency06
+   (#1303)
+ - Updates implementation of test case DNSSEC03 (#1304)
+ - Updates implementation of test case Nameserver15 (#1306)
+ - Documents and updates method '_emit_log()' in all Test modules #1310)
+ - Corrects ASN lookup sources (#1311)
+ - Adds Mail::SPF in 2nd stage in Dockerfile (#1317)
+ - Updates translations (#1324)
+
+
+v4.7.3 2023-09-08 (public fix version)
+
+ [Fixes]
+- Fixes a bug in test case BASIC01 that made tests of zones
+  fail if, while walking the chain of delegations from the root to the
+  zone under test, a name server returns a referral pointing to name
+  servers for an intermediate zone which are all out-of-bailiwick and
+  lacking glue. The bug was introduced in version v4.7.0 in release
+  v2023.1. (#1282)
+- Disable blacklisting for queries by NAMESERVER15 to prevent false
+  errors and warnings (#1285)
+
+
+v4.7.2 2023-08-07 (public fix version)
+
+ [Fixes]
+ - Fixes bug (regression) in test case BASIC01 that made all tests of
+   zone names that start with the same letters as the whole first label
+   of the parent zone fail, e.g. "NOrid.NO" and "FRance.FR". The bug
+   was introduced in version v4.7.1 in release v2023.1.1. (#1270)
+
+
+v4.7.1 2023-07-24 (public fix version)
+
+ [Fixes]
+ - Fixes typo in the B01_CHILD_IS_ALIAS msgid for test case BASIC01
+   (#1240, #1262)
+ - Updates the translation to Norwegian (#1246)
+ - Fixes bug in test case BASIC01 (#1249)
+
+
+v4.7.0 2023-06-21 (public release version)
+
+ [Features]
+ - Updates implementation of test case BASIC01 (#1212)
+ - Adds implementation of test case CONNECTIVITY04 and cleans-up
+   implementation of test case CONNECTIVITY03 (#1219)
+ - Adds implementation of test case NAMESERVER15 (#1218)
+ - Adds implementation of MethodsV2 (#1050)
+ - Updates implementation of test case BASIC02 (#1197)
+ - Updates to accept YAML input for profile (#1209)
+ - Adds new "resolver.source4" and "resolver.source6"
+   properties to profile (#1203)
+
+ [Fixes]
+ - Updates translations (#1238, #1239, #1237, #1226, #1234, #1231)
+ - Removes documentation moved to the zonemaster/zonemaster
+   repository (#1235)
+ - Docker: install Locale::PO through CPAN (#1232)
+ - Lowers problematic tag in DNSSEC10 to DEBUG (#1225)
+ - Updates for the usage of Zonemaster::Engine::Translator (#1221)
+ - Updates implementation of NAMESERVER15 (#1220)
+ - Updates unit tests for test case DNSSEC16 (#1216)
+ - Updates unit tests for test case ZONE09 (#1215)
+ - Disables default testing in installation instructions (#1217)
+ - Fixes EDNS behavior for queries (#1147)
+ - Removes Basic04 completely (#1179)
+ - Adds method to get name server names from undelegated data
+   cache (#1214)
+ - Updates to avoid unnecessary calls to Profile::get in
+   logger (#1200)
+ - Updates implementation of ZONE09 (#1211)
+ - Fixes RIPE ASN lookup results parsing (#1207)
+ - Adds check PO file function (#1195)
+
+
+v4.6.2 2023-03-01 (public fix version)
+
+ [Fixes]
+ - Updates translations to Spanish and Norwegian (#1199, #1196)
+
+
+v4.6.1 2023-01-31 (public fix version)
+
+ [Fixes]
+ - Updates translations (#1180, #1167)
+ - Fixes a bug that made implementation of ADDRESS01 crash (#1181)
+ - Fixes a bug that made implementation of NAMESERVER11 create false error
+   when server returned legitimate EDNS OPTION-CODE (#1173, #1177)
+ - Removed unneeded binary dependency from installation instruction for
+   Ubuntu and Debian (#1176)
+ - Fixes a bug that made implementation of ZONE01 crash when more than
+   one SOA Serial was returned from the zone's name servers (#1175, #1178)
+ - Removes unused message tag (#1174)
+
+
 v4.6.0 2022-12-19 (public release version)
 
  [Features]
@@ -243,7 +483,7 @@ v3.1.2 2020-05-22
 
 [Fixes]
  - Comparison in Zone10 on SOA owner name was done in case
-   senstive manner which created false ERRORs for some zones
+   sensitive manner which created false ERRORs for some zones
    and depending on the case of input zone name (#734, #737)
 
 
@@ -260,7 +500,7 @@ v3.1.0 2020-04-30
  - Allow installation of new LDNS on Debian 9 (#667)
  - Add more meaningful message for unsupported algorithms in
    DNSSEC test cases (#641, #632)
- - Improved the hanling of "fuzzy" PO files (#640, #598, #600, #596)
+ - Improved the handling of "fuzzy" PO files (#640, #598, #600, #596)
  - Implementation of revised version of DNSSEC10 (#633, #618, #632)
  - Implementation of revised version of DNSSEC01 (#627, #616, #308)
  - Implementation of revised version of DELEGATION05 (#628, #617, #236)
@@ -409,9 +649,9 @@ v3.0.0 2019-01-25 (pre-release version)
        support #462
      - Various #481, #485
  - Fixes
-   - Uppdated formatting of msgid tables #402
+   - Updated formatting of msgid tables #402
    - Fixed broken tests #412
-   - All link references on Github now to zonemaster/zonemaster instead
+   - All link references on GitHub now to zonemaster/zonemaster instead
      of old dotse/zonemaster #406
    - Updated manifest #422
    - Updated travis conf to match supported perl versions (#426, #463)
@@ -483,7 +723,7 @@ v2.0.0
   - Updated translations (#127, #196, #216, #248, #249, #291)
   - Incremented VERSION of internal packages (98868cb)
 - Other changes
-  - Fixed Commonmark rendering for Github (cc7a28a)
+  - Fixed Commonmark rendering for GitHub (cc7a28a)
   - Switch msgfmt implementation to pure Perl (#223, #224)
   - New Unit tests infrastructure. 896 tests kept, 2 removed, will be added back later (#310)
 
@@ -499,7 +739,7 @@ v1.1.0 2017-04-04 Public pre-release
 - Solved Duplicate tag in en.po (#252)
 - Solved Update documentation for logfilters (#221)
 - add Ed25519 (15) and Ed448 (16) algorithms (#290)
-- Solved Not-existent name server doesn't cause a failure (#278)
+- Solved Nonexistent name server doesn't cause a failure (#278)
 
 v1.0.16 2016-12-12
 
@@ -538,7 +778,7 @@ v1.0.14 2016-06-15
  - Would be nice to add a count of name servers #453
  - Partly resolved "JSON/JSON::XS usage and requirement", see issue #165
  - nameserver03 test should not perform network requests, issue #168
- - Locale files are not generated nor installed #173
+ - Locale files are neither generated nor installed #173
  - ASN test should only look at authoritative nameservers at the child, issue #441
  - Modify the "Notice" information when DNSSEC not signed, issue #193
  - Implement updated test case dnssec02, issue #187
@@ -574,7 +814,7 @@ v1.0.8 2015-11-16
 
 v1.0.7 2015-10-01
  - ASN in logs are now arrays
- - Make test witout IPv6 connectivity works, fixes #121
+ - Make test without IPv6 connectivity works, fixes #121
  - Now requires Net::Socket::IP
  - Fixes malformed log messages
 
@@ -617,7 +857,7 @@ v1.0.3 2015-04-07
  - Refer to overview page from Zonemaster page.
  - Fix missed corner case in parent-finding algorithm.
  - CNAME handling accidentally left outside check for packet existence.
- - Clearer message when failling signature checks because GOST support is
+ - Clearer message when failing signature checks because GOST support is
    not present.
 
 v1.0.2 2015-02-24

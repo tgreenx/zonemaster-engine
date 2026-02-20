@@ -1,6 +1,6 @@
 package Zonemaster::Engine::Normalization::Error;
 
-use strict;
+use v5.16.0;
 use warnings;
 
 use Carp;
@@ -26,7 +26,7 @@ Zonemaster::Engine::Normalization::Error - normalization error class
 
 Readonly my %ERRORS => (
     AMBIGUOUS_DOWNCASING => {
-        message => N__ 'Ambiguous downcaseing of character "{unicode_name}" in the domain name. Use all lower case instead.',
+        message => N__ 'Ambiguous downcasing of character "{unicode_name}" in the domain name. Use all lower case instead.',
         arguments => [ 'unicode_name' ]
     },
     DOMAIN_NAME_TOO_LONG => {
@@ -117,7 +117,7 @@ sub message {
 
 =item tag
 
-Returns the message tag asscociated to the error.
+Returns the message tag associated to the error.
 
 =cut
 

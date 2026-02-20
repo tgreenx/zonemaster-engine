@@ -8,6 +8,8 @@ BEGIN {
     use_ok( q{Zonemaster::Engine::Util} );
 }
 
+my $checking_module = q{Basic};
+
 sub name_gives {
     my ( $test, $name, $gives ) = @_;
 
@@ -25,19 +27,25 @@ sub name_gives_not {
 }
 
 sub zone_gives {
-    my ( $test, $zone, $gives ) = @_;
+    my ( $test, $zone, $gives_ref ) = @_;
 
-    my @res = Zonemaster::Engine->test_method( q{Basic}, $test, $zone );
-
-    ok( ( grep { $_->tag eq $gives } @res ), $zone->name->string . " gives $gives" );
+    Zonemaster::Engine->logger->clear_history();
+    my @res = grep { $_->tag !~ /^TEST_CASE_(END|START)$/ } Zonemaster::Engine->test_method( $checking_module, $test, $zone );
+    foreach my $gives ( @{$gives_ref} ) {
+        ok( ( grep { $_->tag eq $gives } @res ), $zone->name->string . " gives $gives" );
+    }
+    return scalar( @res );
 }
 
 sub zone_gives_not {
-    my ( $test, $zone, $gives ) = @_;
+    my ( $test, $zone, $gives_ref ) = @_;
 
-    my @res = Zonemaster::Engine->test_method( q{Basic}, $test, $zone );
-
-    ok( !( grep { $_->tag eq $gives } @res ), $zone->name->string . " does not give $gives" );
+    Zonemaster::Engine->logger->clear_history();
+    my @res = grep { $_->tag !~ /^TEST_CASE_(END|START)$/ } Zonemaster::Engine->test_method( $checking_module, $test, $zone );
+    foreach my $gives ( @{$gives_ref} ) {
+        ok( !( grep { $_->tag eq $gives } @res ), $zone->name->string . " does not give $gives" );
+    }
+    return scalar( @res );
 }
 
 my $datafile = q{t/Test-basic.data};
@@ -52,66 +60,12 @@ $json         = read_file( 't/profiles/Test-basic-all.json' );
 $profile_test = Zonemaster::Engine::Profile->from_json( $json );
 Zonemaster::Engine::Profile->effective->merge( $profile_test );
 
-my @res;
 my %res;
-
-my $ns_ok       = Zonemaster::Engine::DNSName->new( q{ns1.nic.fr} );
-my $ns_too_long = Zonemaster::Engine::DNSName->new(
-q{ns123456789012345678901234567890123456789012345678901234567890.dom123456789012345678901234567890123456789012345678901234567890.dom123456789012345678901234567890123456789012345678901234567890.tld123456789012345678901234567890123456789012345678901234567890}
-);
-my $ns_ok_long = Zonemaster::Engine::DNSName->new(
-q{ns23456789012345678901234567890123456789012345678901234567890.dom123456789012345678901234567890123456789012345678901234567890.dom123456789012345678901234567890123456789012345678901234567890.tld123456789012345678901234567890123456789012345678901234567890}
-);
-name_gives( q{basic00}, $ns_too_long, q{DOMAIN_NAME_TOO_LONG} );
-%res = map { $_->tag => 1 } Zonemaster::Engine->test_module( q{basic}, $ns_too_long );
-ok( $res{DOMAIN_NAME_TOO_LONG}, q{DOMAIN_NAME_TOO_LONG} );
-name_gives_not( q{basic00}, $ns_ok,      q{DOMAIN_NAME_TOO_LONG} );
-%res = map { $_->tag => 1 } Zonemaster::Engine->test_module( q{basic}, $ns_ok );
-ok( !$res{DOMAIN_NAME_TOO_LONG}, q{Not DOMAIN_NAME_TOO_LONG} );
-name_gives_not( q{basic00}, $ns_ok_long, q{DOMAIN_NAME_TOO_LONG} );
-%res = map { $_->tag => 1 } Zonemaster::Engine->test_module( q{basic}, $ns_ok_long );
-ok( !$res{DOMAIN_NAME_TOO_LONG}, q{Not DOMAIN_NAME_TOO_LONG} );
-
-my $ns_label_too_long = Zonemaster::Engine::DNSName->new( q{ns1234567890123456789012345678901234567890123456789012345678901234567890.nic.fr} );
-name_gives( q{basic00}, $ns_label_too_long, q{DOMAIN_NAME_LABEL_TOO_LONG} );
-%res = map { $_->tag => 1 } Zonemaster::Engine->test_module( q{basic}, $ns_label_too_long );
-ok( $res{DOMAIN_NAME_LABEL_TOO_LONG}, q{DOMAIN_NAME_LABEL_TOO_LONG} );
-name_gives_not( q{basic00}, $ns_ok, q{DOMAIN_NAME_LABEL_TOO_LONG} );
-%res = map { $_->tag => 1 } Zonemaster::Engine->test_module( q{basic}, $ns_ok );
-ok( !$res{DOMAIN_NAME_LABEL_TOO_LONG}, q{Not DOMAIN_NAME_LABEL_TOO_LONG} );
-
-my $ns_null_label = Zonemaster::Engine::DNSName->new( q{dom12134..fr} );
-name_gives( q{basic00}, $ns_null_label, q{DOMAIN_NAME_ZERO_LENGTH_LABEL} );
-%res = map { $_->tag => 1 } Zonemaster::Engine->test_module( q{basic}, $ns_null_label );
-ok( $res{DOMAIN_NAME_ZERO_LENGTH_LABEL}, q{DOMAIN_NAME_ZERO_LENGTH_LABEL} );
-
 my $zone;
 
-SKIP: {
-    skip "Zone does not longer have tested problem", 2;
-    zone_gives( q{basic02}, $zone, q{NS_FAILED} );
-    zone_gives( q{basic02}, $zone, q{NS_NO_RESPONSE} );
-}
-
 %res = map { $_->tag => 1 } Zonemaster::Engine->test_module( q{basic}, q{nic.tf} );
-use Data::Dumper;print Data::Dumper::Dumper(%res);
-ok( $res{HAS_NAMESERVERS},              q{HAS_NAMESERVERS} );
+ok( $res{B02_AUTH_RESPONSE_SOA},        q{B02_AUTH_RESPONSE_SOA} );
 ok( $res{HAS_NAMESERVER_NO_WWW_A_TEST}, q{HAS_NAMESERVER_NO_WWW_A_TEST} );
-
-SKIP: {
-    skip "Zone does not actually have tested problem", 3;
-    %res = map { $_->tag => 1 } Zonemaster::Engine->test_module( q{basic}, q{melbourneit.com.au} );
-    ok( $res{NO_GLUE_PREVENTS_NAMESERVER_TESTS}, q{NO_GLUE_PREVENTS_NAMESERVER_TESTS} );
-    %res = map { $_->tag => 1 } Zonemaster::Engine->test_module( q{basic}, q{maxan.se} );
-    ok( $res{HAS_A_RECORDS}, q{HAS_A_RECORDS} );
-    $zone = Zonemaster::Engine->zone( q{unknown-tld.unkunk} );
-    zone_gives( q{basic01}, $zone, q{NO_DOMAIN} );
-}
-
-%res = map { $_->tag => 1 } Zonemaster::Engine->test_module( q{basic}, q{birgerjarlhotel.se} );
-ok( $res{A_QUERY_NO_RESPONSES}, q{A_QUERY_NO_RESPONSES} );
-
-$zone = Zonemaster::Engine->zone( q{afnic.fr} );
 
 if ( $ENV{ZONEMASTER_RECORD} ) {
     Zonemaster::Engine::Nameserver->save( $datafile );
@@ -120,55 +74,28 @@ if ( $ENV{ZONEMASTER_RECORD} ) {
 Zonemaster::Engine::Profile->effective->set( q{no_network}, 0 );
 Zonemaster::Engine::Profile->effective->set( q{net.ipv4}, 0 );
 Zonemaster::Engine::Profile->effective->set( q{net.ipv6}, 0 );
-zone_gives( q{basic02}, $zone, q{NO_NETWORK} );
-zone_gives_not( q{basic02}, $zone, q{IPV4_ENABLED} );
-zone_gives_not( q{basic02}, $zone, q{IPV6_ENABLED} );
-zone_gives_not( q{basic02}, $zone, q{IPV4_DISABLED} );
-zone_gives_not( q{basic02}, $zone, q{IPV6_DISABLED} );
-zone_gives( q{basic03}, $zone, q{NO_NETWORK} );
-zone_gives_not( q{basic03}, $zone, q{IPV4_ENABLED} );
-zone_gives_not( q{basic03}, $zone, q{IPV6_ENABLED} );
-zone_gives_not( q{basic03}, $zone, q{IPV4_DISABLED} );
-zone_gives_not( q{basic03}, $zone, q{IPV6_DISABLED} );
 
-#Zonemaster::Engine::Profile->effective->set( q{net.ipv4}, 1 );
-#Zonemaster::Engine::Profile->effective->set( q{net.ipv6}, 0 );
-#zone_gives( q{basic02}, $zone, q{IPV4_ENABLED} );
-#zone_gives( q{basic02}, $zone, q{IPV6_DISABLED} );
-#zone_gives_not( q{basic02}, $zone, q{IPV4_DISABLED} );
-#zone_gives_not( q{basic02}, $zone, q{IPV6_ENABLED} );
-#zone_gives( q{basic03}, $zone, q{IPV4_ENABLED} );
-#zone_gives( q{basic03}, $zone, q{IPV6_DISABLED} );
-#zone_gives_not( q{basic03}, $zone, q{IPV4_DISABLED} );
-#zone_gives_not( q{basic03}, $zone, q{IPV6_ENABLED} );
-#
-#if ( Zonemaster::Engine::Util::supports_ipv6() ) {
-#
-#    Zonemaster::Engine::Profile->effective->set( q{net.ipv4}, 0 );
-#    Zonemaster::Engine::Profile->effective->set( q{net.ipv6}, 1 );
-#    zone_gives_not( q{basic02}, $zone, q{IPV4_ENABLED} );
-#    zone_gives_not( q{basic02}, $zone, q{IPV6_DISABLED} );
-#    zone_gives( q{basic02}, $zone, q{IPV4_DISABLED} );
-#    zone_gives( q{basic02}, $zone, q{IPV6_ENABLED} );
-#    zone_gives_not( q{basic03}, $zone, q{IPV4_ENABLED} );
-#    zone_gives_not( q{basic03}, $zone, q{IPV6_DISABLED} );
-#    zone_gives( q{basic03}, $zone, q{IPV4_DISABLED} );
-#    zone_gives( q{basic03}, $zone, q{IPV6_ENABLED} );
-#
-#    Zonemaster::Engine::Profile->effective->set( q{net.ipv4}, 1 );
-#    Zonemaster::Engine::Profile->effective->set( q{net.ipv6}, 1 );
-#    zone_gives( q{basic02}, $zone, q{IPV4_ENABLED} );
-#    zone_gives( q{basic02}, $zone, q{IPV6_ENABLED} );
-#    zone_gives_not( q{basic02}, $zone, q{IPV4_DISABLED} );
-#    zone_gives_not( q{basic02}, $zone, q{IPV6_DISABLED} );
-#    zone_gives( q{basic03}, $zone, q{IPV4_ENABLED} );
-#    zone_gives( q{basic03}, $zone, q{IPV6_ENABLED} );
-#    zone_gives_not( q{basic03}, $zone, q{IPV4_DISABLED} );
-#    zone_gives_not( q{basic03}, $zone, q{IPV6_DISABLED} );
-#
-#}
+$zone = Zonemaster::Engine->zone( q{afnic.fr} );
+zone_gives( q{basic02}, $zone, [qw{NO_NETWORK}] );
+zone_gives_not( q{basic02}, $zone, [qw{IPV4_ENABLED}] );
+zone_gives_not( q{basic02}, $zone, [qw{IPV6_ENABLED}] );
+zone_gives_not( q{basic02}, $zone, [qw{IPV4_DISABLED}] );
+zone_gives_not( q{basic02}, $zone, [qw{IPV6_DISABLED}] );
+zone_gives( q{basic03}, $zone, [qw{NO_NETWORK}] );
+zone_gives_not( q{basic03}, $zone, [qw{IPV4_ENABLED}] );
+zone_gives_not( q{basic03}, $zone, [qw{IPV6_ENABLED}] );
+zone_gives_not( q{basic03}, $zone, [qw{IPV4_DISABLED}] );
+zone_gives_not( q{basic03}, $zone, [qw{IPV6_DISABLED}] );
 
 Zonemaster::Engine::Profile->effective->set( q{no_network}, 1 );
 
-done_testing;
+TODO: {
+    local $TODO = "Need to find/create zones with that error";
 
+    #basic03
+    ok( $tag{A_QUERY_NO_RESPONSES}, q{A_QUERY_NO_RESPONSES} );
+    ok( $tag{HAS_A_RECORDS}, q{HAS_A_RECORDS} );
+    ok( $tag{NO_A_RECORDS}, q{NO_A_RECORDS} );
+}
+
+done_testing;

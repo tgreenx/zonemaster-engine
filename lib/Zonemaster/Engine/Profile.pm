@@ -1,31 +1,59 @@
 package Zonemaster::Engine::Profile;
 
-use 5.014002;
-
-use strict;
+use v5.16.0;
 use warnings;
 
 use version; our $VERSION = version->declare( "v1.2.22" );
 
 use File::ShareDir qw[dist_file];
 use JSON::PP qw( encode_json decode_json );
-use Scalar::Util qw(reftype);
+use Scalar::Util qw(reftype looks_like_number);
 use File::Slurp;
 use Clone qw(clone);
 use Data::Dumper;
+use Net::IP::XS;
+use Log::Any qw( $log );
+use YAML::XS qw();
 
-use Zonemaster::Engine::Net::IP;
-use Zonemaster::Engine::Constants qw( $RESOLVER_SOURCE_OS_DEFAULT $DURATION_5_MINUTES_IN_SECONDS $DURATION_1_HOUR_IN_SECONDS $DURATION_4_HOURS_IN_SECONDS $DURATION_12_HOURS_IN_SECONDS $DURATION_1_DAY_IN_SECONDS $DURATION_1_WEEK_IN_SECONDS $DURATION_180_DAYS_IN_SECONDS );
+$YAML::XS::Boolean = "JSON::PP";
+
+use Zonemaster::Engine::Constants qw( $DURATION_5_MINUTES_IN_SECONDS $DURATION_1_HOUR_IN_SECONDS $DURATION_4_HOURS_IN_SECONDS $DURATION_12_HOURS_IN_SECONDS $DURATION_1_DAY_IN_SECONDS $DURATION_1_WEEK_IN_SECONDS $DURATION_180_DAYS_IN_SECONDS );
+use Zonemaster::Engine::Validation qw( validate_ipv4 validate_ipv6 );
 
 my %profile_properties_details = (
+    q{cache} => {
+        type    => q{HashRef},
+        test    => sub {
+            my @allowed_keys = ( 'redis' );
+            foreach my $cache_database ( keys %{$_[0]} ) {
+                if ( not grep( /^$cache_database$/, @allowed_keys ) ) {
+                    die "Property cache keys have " . scalar @allowed_keys . " possible values: " . join(", ", @allowed_keys) . "\n";
+                }
+
+                if ( not scalar keys %{ $_[0]->{$cache_database} } ) {
+                    die "Property cache.$cache_database has no items\n";
+                }
+                else {
+                    my @allowed_subkeys;
+                    if ( $cache_database eq 'redis' ) {
+                        @allowed_subkeys = ( 'server', 'expire' );
+                    }
+
+                    foreach my $key ( keys %{ $_[0]->{$cache_database} } ) {
+                        if ( not grep( /^$key$/, @allowed_subkeys ) ) {
+                            die "Property cache.$cache_database subkeys have " . scalar @allowed_subkeys . " possible values: " . join(", ", @allowed_subkeys) . "\n";
+                        }
+
+                        die "Property cache.$cache_database.$key has a NULL or empty item\n" if not $_[0]->{$cache_database}->{$key};
+                        die "Property cache.$cache_database.$key has a negative value\n" if ( looks_like_number( $_[0]->{$cache_database}->{$key} ) and $_[0]->{$cache_database}->{$key} < 0 ) ;
+                    }
+                }
+            }
+        },
+        default => {},
+    },
     q{resolver.defaults.debug} => {
         type    => q{Bool}
-    },
-    q{resolver.defaults.dnssec} => {
-        type    => q{Bool}
-    },
-    q{resolver.defaults.edns_size} => {
-        type    => q{Num}
     },
     q{resolver.defaults.igntc} => {
         type    => q{Bool}
@@ -52,16 +80,23 @@ my %profile_properties_details = (
     q{resolver.defaults.timeout} => {
         type    => q{Num}
     },
-    q{resolver.source} => {
+    q{resolver.source4} => {
         type    => q{Str},
         test    => sub {
-            if ( $_[0] ne $RESOLVER_SOURCE_OS_DEFAULT ) {
-                eval { Zonemaster::Engine::Net::IP->new( $_[0] ) };
-                if ( $@ ) {
-                    die "Property resolver.source must be an IP address or the exact string $RESOLVER_SOURCE_OS_DEFAULT";
-                }
+            unless ( $_[0] eq '' or validate_ipv4( $_[0] ) ) {
+                die "Property resolver.source4 must be an IPv4 address or the empty string\n";
             }
-        }
+        },
+        default => q{}
+    },
+    q{resolver.source6} => {
+        type    => q{Str},
+        test    => sub {
+            unless ( $_[0] eq '' or validate_ipv6( $_[0] ) ) {
+                die "Property resolver.source6 must be a valid IPv6 address or the empty string\n";
+            }
+        },
+        default => q{}
     },
     q{net.ipv4} => {
         type    => q{Bool}
@@ -72,24 +107,11 @@ my %profile_properties_details = (
     q{no_network} => {
         type    => q{Bool}
     },
-    q{asnroots} => {
-        type    => q{ArrayRef},
-        test    => sub {
-            foreach my $ndd ( @{$_[0]} ) {
-                die "Property asnroots has a NULL item" if not defined $ndd;
-                die "Property asnroots has a non scalar item" if not defined ref($ndd);
-                die "Property asnroots has an item too long" if length($ndd) > 255;
-                foreach my $label ( split /[.]/, $ndd ) {
-                    die "Property asnroots has a non domain name item" if $label !~ /^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$/;
-                }
-            }
-        }
-    },
     q{asn_db.style} => {
         type    => q{Str},
         test    => sub {
             if ( lc($_[0]) ne q{cymru} and lc($_[0]) ne q{ripe} ) {
-                die "Property asn_db.style has 2 possible values : Cymru or RIPE (case insensitive)";
+                die "Property asn_db.style has 2 possible values : Cymru or RIPE (case-insensitive)\n";
             }
             $_[0] = lc($_[0]);
         },
@@ -100,25 +122,25 @@ my %profile_properties_details = (
         test    => sub {
             foreach my $db_style ( keys %{$_[0]} ) {
                 if ( lc($db_style) ne q{cymru} and lc($db_style) ne q{ripe} ) {
-                    die "Property asn_db.sources keys have 2 possible values : Cymru or RIPE (case insensitive)";
+                    die "Property asn_db.sources keys have 2 possible values : Cymru or RIPE (case-insensitive)\n";
                 }
                 if ( not scalar @{ ${$_[0]}{$db_style} } ) {
-                    die "Property asn_db.sources.$db_style has no items";
+                    die "Property asn_db.sources.$db_style has no items\n";
                 }
                 else {
                     foreach my $ndd ( @{ ${$_[0]}{$db_style} } ) {
-                        die "Property asn_db.sources.$db_style has a NULL item" if not defined $ndd;
-                        die "Property asn_db.sources.$db_style has a non scalar item" if not defined ref($ndd);
-                        die "Property asn_db.sources.$db_style has an item too long" if length($ndd) > 255;
+                        die "Property asn_db.sources.$db_style has a NULL item\n" if not defined $ndd;
+                        die "Property asn_db.sources.$db_style has a non scalar item\n" if not defined ref($ndd);
+                        die "Property asn_db.sources.$db_style has an item too long\n" if length($ndd) > 255;
                         foreach my $label ( split /[.]/, $ndd ) {
-                            die "Property asn_db.sources.$db_style has a non domain name item" if $label !~ /^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$/;
+                            die "Property asn_db.sources.$db_style has a non domain name item\n" if $label !~ /^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$/;
                         }
                     }
                     ${$_[0]}{lc($db_style)} = delete ${$_[0]}{$db_style};
                 }
             }
         },
-        default => { cymru => [ "asnlookup.zonemaster.net" ] }
+        default => { cymru => [ "asnlookup.zonemaster.net" ] },
     },
     q{logfilter} => {
         type    => q{HashRef},
@@ -260,13 +282,19 @@ sub default {
             $new->set( $property_name, $profile_properties_details{$property_name}{default} );
         }
     }
+
     return $new;
+}
+
+sub all_properties {
+    my ( $class ) = @_;
+    return sort keys %profile_properties_details;
 }
 
 sub get {
     my ( $self, $property_name ) = @_;
 
-    die "Unknown property '$property_name'"  if not exists $profile_properties_details{$property_name};
+    die "Unknown property '$property_name'\n"  if not exists $profile_properties_details{$property_name};
 
     if ( $profile_properties_details{$property_name}->{type} eq q{ArrayRef} or $profile_properties_details{$property_name}->{type} eq q{HashRef} ) {
         return clone _get_value_from_nested_hash( $self->{q{profile}}, split /[.]/, $property_name );
@@ -286,7 +314,7 @@ sub _set {
     my $value_type = reftype($value);
     my $data_details;
 
-    die "Unknown property '$property_name'" if not exists $profile_properties_details{$property_name};
+    die "Unknown property '$property_name'\n" if not exists $profile_properties_details{$property_name};
 
     $data_details = sprintf "[TYPE=%s][FROM=%s][VALUE_TYPE=%s][VALUE=%s]\n%s",
                             exists $profile_properties_details{$property_name}->{type} ? $profile_properties_details{$property_name}->{type} : q{UNDEF},
@@ -296,7 +324,7 @@ sub _set {
                             Data::Dumper::Dumper($value);
     # $value is a Scalar
     if ( ! $value_type  or $value_type eq q{SCALAR} ) {
-        die "Property $property_name can not be undef" if not defined $value;
+        die "Property $property_name can not be undef\n" if not defined $value;
 
         # Boolean
         if ( $profile_properties_details{$property_name}->{type} eq q{Bool} ) {
@@ -313,19 +341,19 @@ sub _set {
                 $value = JSON::PP::true;
             }
             else {
-                die "Property $property_name is of type Boolean $data_details";
+                die "Property $property_name is of type Boolean $data_details\n";
             }
         }
         # Number. In our case, only non-negative integers
         elsif ( $profile_properties_details{$property_name}->{type} eq q{Num} ) {
             if ( $value !~ /^(\d+)$/ ) {
-                die "Property $property_name is of type non-negative integer $data_details";
+                die "Property $property_name is of type non-negative integer $data_details\n";
             }
             if ( exists $profile_properties_details{$property_name}->{min} and $value < $profile_properties_details{$property_name}->{min} ) {
-                die "Property $property_name value is out of limit (smaller)";
+                die "Property $property_name value is out of limit (smaller)\n";
             }
             if ( exists $profile_properties_details{$property_name}->{max} and $value > $profile_properties_details{$property_name}->{max} ) {
-                die "Property $property_name value is out of limit (bigger)";
+                die "Property $property_name value is out of limit (bigger)\n";
             }
 
             $value = 0+ $value;    # Make sure JSON::PP doesn't serialize it as a JSON string
@@ -334,14 +362,14 @@ sub _set {
     else {
         # Array
         if ( $profile_properties_details{$property_name}->{type} eq q{ArrayRef} and reftype($value) ne q{ARRAY} ) {
-            die "Property $property_name is not a ArrayRef $data_details";
+            die "Property $property_name is not a ArrayRef $data_details\n";
         }
         # Hash
         elsif ( $profile_properties_details{$property_name}->{type} eq q{HashRef} and reftype($value) ne q{HASH} ) {
-            die "Property $property_name is not a HashRef $data_details";
+            die "Property $property_name is not a HashRef $data_details\n";
         }
         elsif ( $profile_properties_details{$property_name}->{type} eq q{Bool} or $profile_properties_details{$property_name}->{type} eq q{Num} or $profile_properties_details{$property_name}->{type} eq q{Str} ) {
-            die "Property $property_name is a Scalar $data_details";
+            die "Property $property_name is a Scalar $data_details\n";
         }
     }
 
@@ -355,13 +383,14 @@ sub _set {
 sub merge {
     my ( $self, $other_profile ) = @_;
 
-    die "Merge with ", __PACKAGE__, " only" if ref($other_profile) ne __PACKAGE__;
+    die "Merge with ", __PACKAGE__, " only\n" if ref($other_profile) ne __PACKAGE__;
 
     foreach my $property_name ( keys %profile_properties_details ) {
         if ( defined _get_value_from_nested_hash( $other_profile->{q{profile}}, split /[.]/, $property_name ) ) {
             $self->_set( q{JSON}, $property_name, _get_value_from_nested_hash( $other_profile->{q{profile}}, split /[.]/, $property_name ) );
         }
     }
+
     return $other_profile->{q{profile}};
 }
 
@@ -384,6 +413,18 @@ sub to_json {
     my ( $self ) = @_;
 
     return encode_json( $self->{q{profile}} );
+}
+
+sub from_yaml {
+    my ( $class, $yaml ) = @_;
+    my $data = YAML::XS::Load( $yaml );
+    return $class->from_json( encode_json( $data ) );
+}
+
+sub to_yaml {
+    my ( $self ) = @_;
+
+    return YAML::XS::Dump( $self->{q{profile}} );
 }
 
 sub effective {
@@ -419,7 +460,7 @@ section.
 Here is an example for updating the effective profile with values from
 a given file and setting all properties not mentioned in the file to
 default values.
-For details on the file format see the L</JSON REPRESENTATION> section.
+For details on the file format see the L</REPRESENTATIONS> section.
 
     use Zonemaster::Engine::Profile;
 
@@ -461,10 +502,7 @@ Update it to change the configuration.
 The effective profile is initialized with the default values declared
 in the L</PROFILE PROPERTIES> section.
 
-For the effective profile, all properties are always set (to valid
-values).
-This is based on the assumption that F<default.profile> specifies a
-valid value for each and every property.
+All properties in the effective profile are always set (to valid values).
 
 =head1 CLASS METHODS
 
@@ -492,6 +530,23 @@ given string.
 The remaining properties are unset.
 
 Dies if the given string is illegal according to the L</JSON REPRESENTATION>
+section or if the property values are illegal according to the L</PROFILE
+PROPERTIES> section.
+
+=head2 from_yaml
+
+A constructor that returns a new profile with values parsed from a YAML string.
+
+    my $profile = Zonemaster::Engine::Profile->from_yaml( <<EOF
+    no_network: true
+    EOF
+    );
+
+The returned profile has set values for all properties specified in the
+given string.
+The remaining properties are unset.
+
+Dies if the given string is illegal according to the L</YAML REPRESENTATION>
 section or if the property values are illegal according to the L</PROFILE
 PROPERTIES> section.
 
@@ -543,6 +598,20 @@ Serialize the profile to the L</JSON REPRESENTATION> format.
 
 Returns a string.
 
+=head2 to_yaml
+
+Serialize the profile to the L</JSON REPRESENTATION> format.
+
+    my $string = $profile->to_yaml();
+
+Returns a string.
+
+=head2 all_properties
+
+Get the names of all properties.
+
+Returns a sorted list of strings.
+
 =head1 SUBROUTINES
 
 =head2 _get_profile_paths
@@ -580,37 +649,15 @@ If it is set it has a value that is valid for that specific property.
 Here is a listing of all the properties and their respective sets of
 valid values.
 
-Default values are listed here as specified in the distributed default
-profile JSON file.
-
-=head2 resolver.defaults.usevc
-
-A boolean. If true, only use TCP. Default false.
-
 =head2 resolver.defaults.retrans
 
 An integer between 1 and 255 inclusive. The number of seconds between retries.
 Default 3.
 
-=head2 resolver.defaults.dnssec
-
-A boolean. If true, sets the DO flag in queries. Default false.
-
-=head2 resolver.defaults.recurse
-
-A boolean. If true, sets the RD flag in queries. Default false.
-
-This should almost certainly be kept false.
-
 =head2 resolver.defaults.retry
 
 An integer between 1 and 255 inclusive.
 The number of times a query is sent before we give up. Default 2.
-
-=head2 resolver.defaults.igntc
-
-A boolean. If false, UDP queries that get responses with the C<TC>
-flag set will be automatically resent over TCP. Default false.
 
 =head2 resolver.defaults.fallback
 
@@ -623,12 +670,35 @@ the same query is resent with EDNS0 and TCP (if needed). If you
 want the original answer (with TC bit set) and avoid this kind of
 replay, set this flag to false.
 
-=head2 resolver.source
+=head2 resolver.source4
 
-A string that is either an IP address or the exact string C<"os_default">.
-The source address all resolver objects should use when sending queries.
-If C<"os_default">, the OS default address is used.
-Default C<"os_default">.
+A string representation of an IPv4 address or the empty string.
+The source address all resolver objects should use when sending queries over IPv4.
+
+If set to "" (empty string), the OS default IPv4 address is used.
+
+Default: "" (empty string).
+
+=head2 resolver.source6
+
+A string representation of an IPv6 address or the empty string.
+The source address all resolver objects should use when sending queries over IPv6.
+
+If set to "" (empty string), the OS default IPv6 address is used.
+
+Default: "" (empty string).
+
+=head2 resolver.defaults.igntc
+
+A boolean. Default false. Ignored. Deprecated and planned for removal in v2026.1. Remove it from your profile file.
+
+=head2 resolver.defaults.recurse
+
+A boolean. Default false. Ignored. Deprecated and planned for removal in v2026.1. Remove it from your profile file.
+
+=head2 resolver.defaults.usevc
+
+A boolean. Default false. Ignored. Deprecated and planned for removal in v2026.1. Remove it from your profile file.
 
 =head2 net.ipv4
 
@@ -647,28 +717,38 @@ A boolean. If true, network traffic is forbidden. Default false.
 Use when you want to be sure that any data is only taken from a preloaded
 cache.
 
-=head2 asnroots (DEPRECATED)
-
-An arrayref of domain names. Default C<["asnlookup.zonemaster.net",
-"asnlookup.iis.se", "asn.cymru.com"]>.
-
-The domains will be assumed to be Cymru-style AS lookup zones.
-Normally only the first name in the list will be used, the rest are
-backups in case the earlier ones don't work.
-
 =head2 asn_db.style
 
-A string that is either C<"Cymru"> or C<"RIPE">. Defines which method will
-be used for AS lookup zones.
+A string that is either C<"Cymru"> or C<"RIPE"> (case-insensitive).
+
+Defines which service will be used for AS lookup zones.
+
 Default C<"Cymru">.
 
 =head2 asn_db.sources
 
-An arrayref of domain names when asn_db.style is set to C<"Cymru"> or whois
-servers when asn_db.style is set to C<"RIPE">. Normally only the first item
-in the list will be used, the rest are backups in case the earlier ones don't
-work.
-Default C<"asnlookup.zonemaster.net">.
+A hash of arrayrefs of strings. The currently supported keys are C<"Cymru"> or C<"RIPE"> (case-insensitive).
+
+For C<"Cymru">, the strings are domain names. For C<"RIPE">, they are WHOIS servers. Normally only the first
+item in the list will be used, the rest are backups in case the previous ones didn't work.
+
+Default C<{Cymru: [ "asnlookup.zonemaster.net", "asn.cymru.com" ], RIPE: [ "riswhois.ripe.net" ]}>.
+
+=head2 cache
+
+A hash of hashes. The currently supported key is C<"redis">.
+Default C<{}>.
+
+=head3 redis
+
+A hashref. The currently supported keys are C<"server"> and C<"expire">.
+
+Specifies the address of the Redis server used to perform global caching
+(C<cache.redis.server>) and an optional expire time (C<cache.redis.expire>).
+
+C<cache.redis.server> must be a string in the form C<host:port>.
+C<cache.redis.expire> must be a non-negative integer and defines a time in seconds.
+Default is 300 seconds.
 
 =head2 logfilter
 
@@ -765,11 +845,16 @@ https://github.com/zonemaster/zonemaster/tree/master/docs/specifications/tests/R
 define the default severity level for some of the messages.
 These specifications are the only authoritative documents on the default
 severity level for the various messages.
-For messages not defined in any of these specifications please refer to the file
-located by L<dist_file("Zonemaster-Engine", "default.profile")|
-File::ShareDir/dist_file>.
-For messages neither defined in test specifications, nor listed in
-C<default.profile>, the default severity level is C<DEBUG>.
+For messages not defined in any of these specifications you can use the
+following command to query the default severity level directly from the actual
+default profile.
+
+```sh
+perl -MZonemaster::Engine::Test -E 'say Zonemaster::Engine::Profile->default->to_json' | jq -S .test_levels
+```
+
+For messages neither defined in test specifications, nor listed in the default
+profile, the default severity level is C<DEBUG>.
 
 I<Note:> Sometimes multiple test cases within the same test module define
 messages for the same tag.
@@ -778,20 +863,11 @@ level for the tag.
 
 =head2 test_cases
 
-An arrayref of names of implemented test cases as listed in the
-L<test case specifications|
-https://github.com/zonemaster/zonemaster/tree/master/docs/specifications/tests/ImplementedTestCases.md>.
+An arrayref of names of implemented test cases (in all lower-case) as listed in the
+L<test case specifications|https://github.com/zonemaster/zonemaster/tree/master/docs/specifications/tests/ImplementedTestCases.md>.
 Default is an arrayref listing all the test cases.
 
-Specifies which test cases to consider when a test module is asked
-to run of all of its test cases.
-
-Test cases not included here can still be run individually.
-
-The test cases C<basic00>, C<basic01> and C<basic02> are always considered no
-matter if they're excluded from this property.
-This is because part of their function is to verify that the given domain name
-can be tested at all.
+Specifies which test cases can be run by the testing suite.
 
 =head2 test_cases_vars.dnssec04.REMAINING_SHORT
 
@@ -829,7 +905,7 @@ https://github.com/zonemaster/zonemaster/blob/master/docs/specifications/tests/Z
 Related to the REFRESH_MINIMUM_VALUE_LOWER message tag from this test case.
 Default C<14400> (4 hours in seconds).
 
-=head2 test_cases_vars04.zone.SOA_RETRY_MINIMUM_VALUE
+=head2 test_cases_vars.zone04.SOA_RETRY_MINIMUM_VALUE
 
 A positive integer value.
 Recommended lower bound for SOA retry values (in seconds) in test case
@@ -865,7 +941,9 @@ https://github.com/zonemaster/zonemaster/blob/master/docs/specifications/tests/Z
 Related to the SOA_DEFAULT_TTL_MAXIMUM_VALUE_HIGHER message tag from this test case.
 Default C<86400> (1 day in seconds).
 
-=head1 JSON REPRESENTATION
+=head1 REPRESENTATIONS
+
+=head2 JSON REPRESENTATION
 
 Property names in L</PROFILE PROPERTIES> section correspond to paths in
 a datastructure of nested JSON objects.
@@ -888,8 +966,8 @@ C<net.ipv6> = true has this JSON representation:
         }
     }
 
-=over
+=head2 YAML REPRESENTATION
 
-=back
+Similar to the L</JSON REPRESENTATION> but uses a YAML format.
 
 =cut

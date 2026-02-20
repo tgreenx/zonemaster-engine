@@ -1,23 +1,31 @@
 package Zonemaster::Engine::Test::Nameserver;
 
-use 5.014002;
-
-use strict;
+use v5.16.0;
 use warnings;
 
-use version; our $VERSION = version->declare( "v1.0.27" );
+use version; our $VERSION = version->declare( "v1.1.0" );
 
 use List::MoreUtils qw[uniq none];
 use Locale::TextDomain qw[Zonemaster-Engine];
 use Readonly;
 use JSON::PP;
+use Net::IP::XS;
 
 use Zonemaster::Engine::Profile;
 use Zonemaster::Engine::Constants qw[:ip];
 use Zonemaster::Engine::Test::Address;
 use Zonemaster::Engine::Util;
 use Zonemaster::Engine::TestMethods;
-use Zonemaster::Engine::Net::IP;
+
+=head1 NAME
+
+Zonemaster::Engine::Test::Nameserver - Module implementing tests focused on the properties of a name server
+
+=head1 SYNOPSIS
+
+    my @results = Zonemaster::Engine::Test::Nameserver->all( $zone );
+
+=cut
 
 Readonly my @NONEXISTENT_NAMES => qw{
   xn--nameservertest.iis.se
@@ -25,9 +33,23 @@ Readonly my @NONEXISTENT_NAMES => qw{
   xn--nameservertest.ripe.net
 };
 
-###
-### Entry Points
-###
+=head1 METHODS
+
+=over
+
+=item all()
+
+    my @logentry_array = all( $zone );
+
+Runs the default set of tests for that module, i.e. L<fourteen tests|/TESTS>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub all {
     my ( $class, $zone ) = @_;
@@ -72,13 +94,25 @@ sub all {
     if ( Zonemaster::Engine::Util::should_run_test( q{nameserver13} ) ) {
         push @results, $class->nameserver13( $zone );
     }
+    if ( Zonemaster::Engine::Util::should_run_test( q{nameserver15} ) ) {
+        push @results, $class->nameserver15( $zone );
+    }
 
     return @results;
 } ## end sub all
 
-###
-### Metadata Exposure
-###
+=over
+
+=item metadata()
+
+    my $hash_ref = metadata();
+
+Returns a reference to a hash, the keys of which are the names of all Test Cases in the module, and the corresponding values are references to
+an array containing all the message tags that the Test Case can use in L<log entries|Zonemaster::Engine::Logger::Entry>.
+
+=back
+
+=cut
 
 sub metadata {
     my ( $class ) = @_;
@@ -216,65 +250,73 @@ sub metadata {
               TEST_CASE_START
               )
         ],
+        nameserver15 => [
+            qw(
+              N15_ERROR_ON_VERSION_QUERY
+              N15_NO_VERSION_REVEALED
+              N15_SOFTWARE_VERSION
+              N15_WRONG_CLASS
+              )
+        ],
     };
 } ## end sub metadata
 
 Readonly my %TAG_DESCRIPTIONS => (
     NAMESERVER01 => sub {
         __x    # NAMESERVER:NAMESERVER01
-            'A name server should not be a recursor', @_;
+            'A name server should not be a recursor';
     },
     NAMESERVER02 => sub {
         __x    # NAMESERVER:NAMESERVER02
-            'Test of EDNS0 support', @_;
+            'Test of EDNS0 support';
     },
     NAMESERVER03 => sub {
         __x    # NAMESERVER:NAMESERVER03
-            'Test availability of zone transfer (AXFR)', @_;
+            'Test availability of zone transfer (AXFR)';
     },
     NAMESERVER04 => sub {
         __x    # NAMESERVER:NAMESERVER04
-            'Same source address', @_;
+            'Same source address';
     },
     NAMESERVER05 => sub {
         __x    # NAMESERVER:NAMESERVER05
-            'Behaviour against AAAA query', @_;
+            'Behaviour against AAAA query';
     },
     NAMESERVER06 => sub {
         __x    # NAMESERVER:NAMESERVER06
-            'NS can be resolved', @_;
+            'NS can be resolved';
     },
     NAMESERVER07 => sub {
         __x    # NAMESERVER:NAMESERVER07
-            'To check whether authoritative name servers return an upward referral', @_;
+            'To check whether authoritative name servers return an upward referral';
     },
     NAMESERVER08 => sub {
         __x    # NAMESERVER:NAMESERVER08
-            'Testing QNAME case insensitivity', @_;
+            'Testing QNAME case insensitivity';
     },
     NAMESERVER09 => sub {
         __x    # NAMESERVER:NAMESERVER09
-            'Testing QNAME case sensitivity', @_;
+            'Testing QNAME case sensitivity';
     },
     NAMESERVER10 => sub {
         __x    # NAMESERVER:NAMESERVER10
-            'Test for undefined EDNS version', @_;
+            'Test for undefined EDNS version';
     },
     NAMESERVER11 => sub {
         __x    # NAMESERVER:NAMESERVER11
-            'Test for unknown EDNS OPTION-CODE', @_;
+            'Test for unknown EDNS OPTION-CODE';
     },
     NAMESERVER12 => sub {
         __x    # NAMESERVER:NAMESERVER12
-            'Test for unknown EDNS flags', @_;
+            'Test for unknown EDNS flags';
     },
     NAMESERVER13 => sub {
         __x    # NAMESERVER:NAMESERVER13
-            'Test for truncated response on EDNS query', @_;
+            'Test for truncated response on EDNS query';
     },
-    NAMESERVER14 => sub {
-        __x    # NAMESERVER:NAMESERVER14
-            'Test for unknown version with unknown OPTION-CODE', @_;
+    NAMESERVER15 => sub {
+        __x    # NAMESERVER:NAMESERVER15
+            'Checking for revealed software version';
     },
     AAAA_BAD_RDATA => sub {
         __x    # NAMESERVER:AAAA_BAD_RDATA
@@ -445,6 +487,22 @@ Readonly my %TAG_DESCRIPTIONS => (
         __x    # NAMESERVER:N11_UNSET_AA
           'The DNS response, on query with unknown EDNS option-code, is unexpectedly not authoritative from name servers "{ns_ip_list}".', @_;
     },
+    N15_ERROR_ON_VERSION_QUERY => sub {
+        __x    # NAMESERVER:N15_ERROR_ON_VERSION_QUERY
+          'The following name server(s) do not respond or respond with SERVFAIL to software version query "{query_name}". Returned from name servers: "{ns_list}"', @_;
+    },
+    N15_NO_VERSION_REVEALED => sub {
+        __x    # NAMESERVER:N15_NO_VERSION_REVEALED
+          'The following name server(s) do not reveal the software version. Returned from name servers: "{ns_list}"', @_;
+    },
+    N15_SOFTWARE_VERSION => sub {
+        __x    # NAMESERVER:N15_SOFTWARE_VERSION
+          'The following name server(s) respond to software version query "{query_name}" with string "{string}". Returned from name servers: "{ns_list}"', @_;
+    },
+    N15_WRONG_CLASS => sub {
+        __x    # NAMESERVER:N15_WRONG_CLASS
+          'The following name server(s) do not return CH class record(s) on CH class query. Returned from name servers: "{ns_list}"', @_;
+    },
     QNAME_CASE_INSENSITIVE => sub {
         __x    # NAMESERVER:QNAME_CASE_INSENSITIVE
           'Nameserver {ns} does not preserve original case of the queried name ({domain}).', @_;
@@ -465,10 +523,6 @@ Readonly my %TAG_DESCRIPTIONS => (
         __x    # NAMESERVER:TEST_CASE_START
           'TEST_CASE_START {testcase}.', @_;
     },
-    UNKNOWN_OPTION_CODE => sub {
-        __x    # NAMESERVER:UNKNOWN_OPTION_CODE
-          'Nameserver {ns} responds with an unknown ENDS OPTION-CODE.', @_;
-    },
     UPWARD_REFERRAL => sub {
         __x    # NAMESERVER:UPWARD_REFERRAL
           'Nameserver {ns} returns an upward referral.', @_;
@@ -483,20 +537,83 @@ Readonly my %TAG_DESCRIPTIONS => (
     },
 );
 
+=over
+
+=item tag_descriptions()
+
+    my $hash_ref = tag_descriptions();
+
+Used by the L<built-in translation system|Zonemaster::Engine::Translator>.
+
+Returns a reference to a hash, the keys of which are the message tags and the corresponding values are strings (message IDs).
+
+=back
+
+=cut
+
 sub tag_descriptions {
     return \%TAG_DESCRIPTIONS;
 }
 
+=over
+
+=item version()
+
+    my $version_string = version();
+
+Returns a string containing the version of the current module.
+
+=back
+
+=cut
+
 sub version {
     return "$Zonemaster::Engine::Test::Nameserver::VERSION";
 }
+
+=head1 INTERNAL METHODS
+
+=over
+
+=item _emit_log()
+
+    my $log_entry = _emit_log( $message_tag_string, $hash_ref );
+
+Adds a message to the L<logger|Zonemaster::Engine::Logger> for this module.
+See L<Zonemaster::Engine::Logger::Entry/add($tag, $argref, $module, $testcase)> for more details.
+
+Takes a string (message tag) and a reference to a hash (arguments).
+
+Returns a L<Zonemaster::Engine::Logger::Entry> object.
+
+=back
+
+=cut
+
+sub _emit_log { my ( $tag, $argref ) = @_; return Zonemaster::Engine->logger->add( $tag, $argref, 'Nameserver' ); }
+
+=over
+
+=item _ip_disabled_message()
+
+    my $bool = _ip_disabled_message( $logentry_array_ref, $ns, @query_type_array );
+
+Checks if the IP version of a given name server is allowed to be queried. If not, it adds a logging message and returns true. Else, it returns false.
+
+Takes a reference to an array of L<Zonemaster::Engine::Logger::Entry> objects, a L<Zonemaster::Engine::Nameserver> object and an array of strings (query type).
+
+Returns a boolean.
+
+=back
+
+=cut
 
 sub _ip_disabled_message {
     my ( $results_array, $ns, @rrtypes ) = @_;
 
     if ( not Zonemaster::Engine::Profile->effective->get(q{net.ipv6}) and $ns->address->version == $IP_VERSION_6 ) {
         push @$results_array, map {
-          info(
+          _emit_log(
             IPV6_DISABLED => {
                 ns     => $ns->string,
                 rrtype => $_
@@ -508,7 +625,7 @@ sub _ip_disabled_message {
 
     if ( not Zonemaster::Engine::Profile->effective->get(q{net.ipv4}) and $ns->address->version == $IP_VERSION_4 ) {
         push @$results_array, map {
-          info(
+          _emit_log(
             IPV4_DISABLED => {
                 ns     => $ns->string,
                 rrtype => $_,
@@ -520,9 +637,29 @@ sub _ip_disabled_message {
     return 0;
 }
 
+=head1 TESTS
+
+=over
+
+=item nameserver01()
+
+    my @logentry_array = nameserver01( $zone );
+
+Runs the L<Nameserver01 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Nameserver-TP/nameserver01.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
+
 sub nameserver01 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Nameserver01';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
 
     my @nss =  @{ Zonemaster::Engine::TestMethods->method4and5( $zone ) };
 
@@ -536,10 +673,10 @@ sub nameserver01 {
         my $has_seen_ra    = 0;
         for my $nonexistent_name ( @NONEXISTENT_NAMES ) {
 
-            my $p = $ns->query( $nonexistent_name, q{A}, { blacklisting_disabled => 1 } );
+            my $p = $ns->query( $nonexistent_name, q{A} );
             if ( !$p ) {
                 push @results,
-                  info(
+                  _emit_log(
                     NO_RESPONSE => {
                         ns     => $ns->string,
                         domain => $nonexistent_name,
@@ -561,21 +698,39 @@ sub nameserver01 {
         } ## end for my $nonexistent_name...
 
         if ( $has_seen_ra || ( $response_count > 0 && $nxdomain_count == $response_count ) ) {
-            push @results, info( IS_A_RECURSOR => { ns => $ns->string } );
+            push @results, _emit_log( IS_A_RECURSOR => { ns => $ns->string } );
             $is_no_recursor = 0;
         }
 
         if ( $is_no_recursor ) {
-            push @results, info( NO_RECURSOR => { ns => $ns->string } );
+            push @results, _emit_log( NO_RECURSOR => { ns => $ns->string } );
         }
     } ## end for my $ns ( @nss )
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub nameserver01
+
+=over
+
+=item nameserver02()
+
+    my @logentry_array = nameserver02( $zone );
+
+Runs the L<Nameserver02 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Nameserver-TP/nameserver02.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub nameserver02 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Nameserver02';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
     my %nsnames_and_ip;
     my $n_error = 0;
 
@@ -586,10 +741,10 @@ sub nameserver02 {
 
         next if $nsnames_and_ip{ $local_ns->name->string . q{/} . $local_ns->address->short };
 
-        my $p = $local_ns->query( $zone->name, q{SOA}, { edns_size => 512 } );
+        my $p = $local_ns->query( $zone->name, q{SOA}, { edns_details => { version => 0 } } );
         if ( $p ) {
             if ( $p->rcode eq q{FORMERR} and not $p->has_edns) {
-                push @results, info( NO_EDNS_SUPPORT => { ns => $local_ns->string } );
+                push @results, _emit_log( NO_EDNS_SUPPORT => { ns => $local_ns->string } );
                 $n_error++;
             }
             elsif ( $p->rcode eq q{NOERROR} and not $p->edns_rcode and $p->get_records( q{SOA}, q{answer} ) and $p->edns_version == 0 ) {
@@ -598,7 +753,7 @@ sub nameserver02 {
             }
             elsif ( $p->rcode eq q{NOERROR} and not $p->has_edns ) {
                 push @results,
-                  info(
+                  _emit_log(
                     EDNS_RESPONSE_WITHOUT_EDNS => {
                         ns     => $local_ns->string,
                         domain => $zone->name,
@@ -608,7 +763,7 @@ sub nameserver02 {
             }
             elsif ( $p->rcode eq q{NOERROR} and $p->has_edns and $p->edns_version != 0 ) {
                 push @results,
-                  info(
+                  _emit_log(
                     EDNS_VERSION_ERROR => {
                         ns     => $local_ns->string,
                         domain => $zone->name,
@@ -617,7 +772,7 @@ sub nameserver02 {
                 $n_error++;
             }
             else {
-                push @results, info( NS_ERROR => { ns => $local_ns->string } );
+                push @results, _emit_log( NS_ERROR => { ns => $local_ns->string } );
                 $n_error++;
             }
         }
@@ -625,7 +780,7 @@ sub nameserver02 {
             my $p2 = $local_ns->query( $zone->name, q{SOA} );
             if ( $p2 ) {
                 push @results,
-                  info(
+                  _emit_log(
                     BREAKS_ON_EDNS => {
                         ns     => $local_ns->string,
                         domain => $zone->name,
@@ -635,7 +790,7 @@ sub nameserver02 {
             }
             else {
                 push @results,
-                  info(
+                  _emit_log(
                     NO_RESPONSE => {
                         ns     => $local_ns->string,
                         domain => $zone->name,
@@ -650,19 +805,37 @@ sub nameserver02 {
 
     if ( scalar keys %nsnames_and_ip and not $n_error ) {
         push @results,
-          info(
+          _emit_log(
             EDNS0_SUPPORT => {
                 ns_list => join( q{;}, keys %nsnames_and_ip ),
             }
           );
     }
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub nameserver02
+
+=over
+
+=item nameserver03()
+
+    my @logentry_array = nameserver03( $zone );
+
+Runs the L<Nameserver03 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Nameserver-TP/nameserver03.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub nameserver03 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Nameserver03';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
     my %nsnames_and_ip;
 
     my @nss =  @{ Zonemaster::Engine::TestMethods->method4and5( $zone ) };
@@ -678,22 +851,40 @@ sub nameserver03 {
             $local_ns->axfr( $zone->name, sub { ( $first_rr ) = @_; return 0; } );
             1;
         } or do {
-            push @results, info( AXFR_FAILURE => { ns => $local_ns->string } );
+            push @results, _emit_log( AXFR_FAILURE => { ns => $local_ns->string } );
         };
 
         if ( $first_rr and $first_rr->type eq q{SOA} ) {
-            push @results, info( AXFR_AVAILABLE => { ns => $local_ns->string } );
+            push @results, _emit_log( AXFR_AVAILABLE => { ns => $local_ns->string } );
         }
 
         $nsnames_and_ip{ $local_ns->name->string . q{/} . $local_ns->address->short }++;
     } ## end foreach my $local_ns ( @{ Zonemaster::Engine::TestMethods...})
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub nameserver03
+
+=over
+
+=item nameserver04()
+
+    my @logentry_array = nameserver04( $zone );
+
+Runs the L<Nameserver04 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Nameserver-TP/nameserver04.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub nameserver04 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Nameserver04';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
     my %nsnames_and_ip;
     my $n_error = 0;
 
@@ -707,9 +898,9 @@ sub nameserver04 {
 
         my $p = $local_ns->query( $zone->name, q{SOA} );
         if ( $p ) {
-            if ( $p->answerfrom and ( $local_ns->address->short ne Zonemaster::Engine::Net::IP->new( $p->answerfrom )->short ) ) {
+            if ( $p->answerfrom and ( $local_ns->address->short ne Net::IP::XS->new( $p->answerfrom )->short ) ) {
                 push @results,
-                  info(
+                  _emit_log(
                     DIFFERENT_SOURCE_IP => {
                         ns     => $local_ns->string,
                         source => $p->answerfrom,
@@ -723,19 +914,37 @@ sub nameserver04 {
 
     if ( scalar keys %nsnames_and_ip and not $n_error) {
         push @results,
-          info(
+          _emit_log(
             SAME_SOURCE_IP => {
                 names => join( q{,}, keys %nsnames_and_ip ),
             }
           );
     }
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub nameserver04
+
+=over
+
+=item nameserver05()
+
+    my @logentry_array = nameserver05( $zone );
+
+Runs the L<Nameserver05 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Nameserver-TP/nameserver05.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub nameserver05 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Nameserver05';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
     my %nsnames_and_ip;
     my $aaaa_issue = 0;
     my @aaaa_ok;
@@ -754,7 +963,7 @@ sub nameserver05 {
 
         if ( not $p ) {
             push @results,
-              info(
+              _emit_log(
                 NO_RESPONSE => {
                     ns     => $ns->string,
                     domain => $zone->name,
@@ -763,7 +972,7 @@ sub nameserver05 {
         }
         elsif ( $p->rcode ne q{NOERROR} ) {
             push @results,
-              info(
+              _emit_log(
                 A_UNEXPECTED_RCODE => {
                     ns    => $ns->string,
                     rcode => $p->rcode,
@@ -775,12 +984,12 @@ sub nameserver05 {
 
             if ( not $p ) {
                 push @results,
-                info( AAAA_QUERY_DROPPED => { ns => $ns->string } );
+                _emit_log( AAAA_QUERY_DROPPED => { ns => $ns->string } );
                 $aaaa_issue++;
             }
             elsif ( $p->rcode ne q{NOERROR} ) {
                 push @results,
-                  info(
+                  _emit_log(
                     AAAA_UNEXPECTED_RCODE => {
                         ns    => $ns->string,
                         rcode => $p->rcode,
@@ -792,7 +1001,7 @@ sub nameserver05 {
                 foreach my $rr ( $p->get_records( q{AAAA}, q{answer} ) ) {
                     if ( length($rr->rdf(0)) != 16 ) {
                         push @results,
-                          info(
+                          _emit_log(
                             AAAA_BAD_RDATA => {
                                 ns     => $ns->string,
                                 length => length( $rr->rdf( 0 ) ),
@@ -810,19 +1019,37 @@ sub nameserver05 {
 
     if ( scalar @aaaa_ok and not $aaaa_issue ) {
         push @results,
-          info(
+          _emit_log(
             AAAA_WELL_PROCESSED => {
                 ns_list => join( q{;}, keys %nsnames_and_ip ),
             }
           );
     }
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub nameserver05
+
+=over
+
+=item nameserver06()
+
+    my @logentry_array = nameserver06( $zone );
+
+Runs the L<Nameserver06 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Nameserver-TP/nameserver06.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub nameserver06 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Nameserver06';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
     my @all_nsnames = uniq map { lc( $_->string ) } @{ Zonemaster::Engine::TestMethods->method2( $zone ) },
       @{ Zonemaster::Engine::TestMethods->method3( $zone ) };
     my @all_nsnames_with_ip = uniq map { lc( $_->name->string ) } @{ Zonemaster::Engine::TestMethods->method4and5( $zone ) };
@@ -835,7 +1062,7 @@ sub nameserver06 {
     @all_nsnames_without_ip = keys %diff;
     if ( scalar @all_nsnames_without_ip and scalar @all_nsnames_with_ip ) {
         push @results,
-          info(
+          _emit_log(
             CAN_NOT_BE_RESOLVED => {
                 nsname_list => join( q{;}, @all_nsnames_without_ip ),
             }
@@ -843,28 +1070,46 @@ sub nameserver06 {
     }
     elsif ( not scalar @all_nsnames_with_ip ) {
         push @results,
-          info(
+          _emit_log(
             NO_RESOLUTION => {
                 names => join( q{,}, @all_nsnames_without_ip ),
             }
           );
     }
     else {
-        push @results, info( CAN_BE_RESOLVED => {} );
+        push @results, _emit_log( CAN_BE_RESOLVED => {} );
     }
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub nameserver06
+
+=over
+
+=item nameserver07()
+
+    my @logentry_array = nameserver07( $zone );
+
+Runs the L<Nameserver07 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Nameserver-TP/nameserver07.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub nameserver07 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Nameserver07';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
     my %nsnames_and_ip;
     my %nsnames;
     my $n_error = 0;
 
     if ( $zone->name eq q{.} ) {
-        push @results, info( UPWARD_REFERRAL_IRRELEVANT => {} );
+        push @results, _emit_log( UPWARD_REFERRAL_IRRELEVANT => {} );
     }
     else {
         my @nss =  @{ Zonemaster::Engine::TestMethods->method4and5( $zone ) };
@@ -873,12 +1118,12 @@ sub nameserver07 {
 
             next if $nsnames_and_ip{ $local_ns->name->string . q{/} . $local_ns->address->short };
 
-            my $p = $local_ns->query( q{.}, q{NS}, { blacklisting_disabled => 1 } );
+            my $p = $local_ns->query( q{.}, q{NS} );
             if ( $p ) {
                 my @ns = $p->get_records( q{NS}, q{authority} );
 
                 if ( @ns ) {
-                    push @results, info( UPWARD_REFERRAL => { ns => $local_ns->string } );
+                    push @results, _emit_log( UPWARD_REFERRAL => { ns => $local_ns->string } );
                     $n_error++;
                 }
             }
@@ -888,7 +1133,7 @@ sub nameserver07 {
 
         if ( scalar keys %nsnames_and_ip and not $n_error ) {
             push @results,
-              info(
+              _emit_log(
                 NO_UPWARD_REFERRAL => {
                     nsname_list => join( q{;}, sort keys %nsnames ),
                 }
@@ -896,12 +1141,30 @@ sub nameserver07 {
         }
     } ## end else [ if ( $zone->name eq q{.})]
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub nameserver07
+
+=over
+
+=item nameserver08()
+
+    my @logentry_array = nameserver08( $zone );
+
+Runs the L<Nameserver08 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Nameserver-TP/nameserver08.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub nameserver08 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Nameserver08';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
     my %nsnames_and_ip;
     my $original_name = q{www.} . $zone->name->string;
     my $randomized_uc_name;
@@ -927,7 +1190,7 @@ sub nameserver08 {
             $qrr_name =~ s/\.\z//smgx;
             if ( $qrr_name eq $randomized_uc_name ) {
                 push @results,
-                  info(
+                  _emit_log(
                     QNAME_CASE_SENSITIVE => {
                         ns     => $local_ns->string,
                         domain => $randomized_uc_name,
@@ -936,7 +1199,7 @@ sub nameserver08 {
             }
             else {
                 push @results,
-                  info(
+                  _emit_log(
                     QNAME_CASE_INSENSITIVE => {
                         ns     => $local_ns->string,
                         domain => $randomized_uc_name,
@@ -947,12 +1210,30 @@ sub nameserver08 {
         $nsnames_and_ip{ $local_ns->name->string . q{/} . $local_ns->address->short }++;
     } ## end foreach my $local_ns ( @{ Zonemaster::Engine::TestMethods...})
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub nameserver08
+
+=over
+
+=item nameserver09()
+
+    my @logentry_array = nameserver09( $zone );
+
+Runs the L<Nameserver09 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Nameserver-TP/nameserver09.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub nameserver09 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Nameserver09';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
     my %nsnames_and_ip;
     my $original_name = q{www.} . $zone->name->string;
     my $record_type   = q{SOA};
@@ -997,7 +1278,7 @@ sub nameserver09 {
 
             if ( $answer1_string eq $answer2_string ) {
                 push @results,
-                  info(
+                  _emit_log(
                     CASE_QUERY_SAME_ANSWER => {
                         ns     => $local_ns->string,
                         type   => $record_type,
@@ -1009,7 +1290,7 @@ sub nameserver09 {
             else {
                 $all_results_match = 0;
                 push @results,
-                  info(
+                  _emit_log(
                     CASE_QUERY_DIFFERENT_ANSWER => {
                         ns     => $local_ns->string,
                         type   => $record_type,
@@ -1024,7 +1305,7 @@ sub nameserver09 {
 
             if ( $p1->rcode eq $p2->rcode ) {
                 push @results,
-                  info(
+                  _emit_log(
                     CASE_QUERY_SAME_RC => {
                         ns     => $local_ns->string,
                         type   => $record_type,
@@ -1037,7 +1318,7 @@ sub nameserver09 {
             else {
                 $all_results_match = 0;
                 push @results,
-                  info(
+                  _emit_log(
                     CASE_QUERY_DIFFERENT_RC => {
                         ns     => $local_ns->string,
                         type   => $record_type,
@@ -1053,7 +1334,7 @@ sub nameserver09 {
         elsif ( $p1 or $p2 ) {
             $all_results_match = 0;
             push @results,
-              info(
+              _emit_log(
                 CASE_QUERY_NO_ANSWER => {
                     ns     => $local_ns->string,
                     type   => $record_type,
@@ -1067,7 +1348,7 @@ sub nameserver09 {
 
     if ( $all_results_match ) {
         push @results,
-          info(
+          _emit_log(
             CASE_QUERIES_RESULTS_OK => {
                 type   => $record_type,
                 domain => $original_name,
@@ -1076,7 +1357,7 @@ sub nameserver09 {
     }
     else {
         push @results,
-          info(
+          _emit_log(
             CASE_QUERIES_RESULTS_DIFFER => {
                 type   => $record_type,
                 domain => $original_name,
@@ -1084,12 +1365,30 @@ sub nameserver09 {
           );
     }
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub nameserver09
+
+=over
+
+=item nameserver10()
+
+    my @logentry_array = nameserver10( $zone );
+
+Runs the L<Nameserver10 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Nameserver-TP/nameserver10.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub nameserver10 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Nameserver10';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
 
     my @no_response_edns1;
     my %unexpected_rcode;
@@ -1101,8 +1400,7 @@ sub nameserver10 {
 
         next if ( _ip_disabled_message( \@results, $ns, q{SOA} ) );
 
-        #To be changed to '$ns->query( $zone->name, q{SOA}, { edns_details => { version => 0 } } );' when PR#1147 is merged.
-        my $p = $ns->query( $zone->name, q{SOA}, { edns_details => { udp_size => 512 } } );
+        my $p = $ns->query( $zone->name, q{SOA}, { edns_details => { version => 0 } } );
 
         if ( $p and $p->rcode eq q{NOERROR} ){
             my $p2 = $ns->query( $zone->name, q{SOA}, { edns_details => { version => 1 } } );
@@ -1126,7 +1424,7 @@ sub nameserver10 {
 
     if ( scalar @no_response_edns1 ){
         push @results,
-            info(
+            _emit_log(
                 N10_NO_RESPONSE_EDNS1_QUERY => {
                     ns_ip_list => join ( q{;}, uniq sort @no_response_edns1 )
                 }
@@ -1135,7 +1433,7 @@ sub nameserver10 {
 
     if ( scalar keys %unexpected_rcode ){
         push @results, map {
-            info(
+            _emit_log(
                 N10_UNEXPECTED_RCODE => {
                     rcode     => $_,
                     ns_ip_list => join( q{;}, uniq sort @{ $unexpected_rcode{$_} } )
@@ -1146,19 +1444,37 @@ sub nameserver10 {
 
     if ( scalar @edns_response_error ){
         push @results,
-            info(
+            _emit_log(
                 N10_EDNS_RESPONSE_ERROR => {
                     ns_ip_list => join ( q{;}, uniq sort @edns_response_error )
                 }
             );
     }
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub nameserver10
+
+=over
+
+=item nameserver11()
+
+    my @logentry_array = nameserver11( $zone );
+
+Runs the L<Nameserver11 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Nameserver-TP/nameserver11.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub nameserver11 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Nameserver11';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
 
     my @no_response;
     my %unexpected_rcode;
@@ -1178,35 +1494,50 @@ sub nameserver11 {
 
         next if ( _ip_disabled_message( \@results, $ns, q{SOA} ) );
 
-        #To be changed to '$ns->query( $zone->name, q{SOA}, { edns_details => { version => 0 } } );' when PR#1147 is merged.
-        my $p = $ns->query( $zone->name, q{SOA}, { edns_details => { udp_size => 512 } } );
+        my $p = $ns->query( $zone->name, q{SOA}, { edns_details => { version => 0 } } );
 
-        if ( not $p or not $p->has_edns or $p->rcode ne q{NOERROR} or not $p->aa or not $p->get_records_for_name(q{SOA}, $zone->name, q{answer}) ){
+        if ( not $p or not $p->has_edns or $p->rcode ne q{NOERROR} or not $p->aa or not $p->get_records_for_name(q{SOA}, $zone->name, q{answer}) ) {
             next;
         }
-        
-        #To be changed to '$ns->query( $zone->name, q{SOA}, { edns_details => { data => $rdata } } );' when PR#1147 is merged.
-        $p = $ns->query( $zone->name, q{SOA}, { edns_details => { data => $rdata, udp_size => 512 } } );
+
+        $p = $ns->query( $zone->name, q{SOA}, { edns_details => { version => 0, data => $rdata } } );
 
         if ( $p ) {
-            if ( $p->rcode ne q{NOERROR} ){
+            if ( $p->rcode ne q{NOERROR} ) {
                 push @{ $unexpected_rcode{$p->rcode} }, $ns->address->short;
             }
-            
-            elsif ( not $p->has_edns ){
+
+            elsif ( not $p->has_edns ) {
                 push @no_edns, $ns->address->short;
             }
-            
-            elsif ( not $p->get_records_for_name(q{SOA}, $zone->name, q{answer}) ){
+
+            elsif ( not $p->get_records_for_name(q{SOA}, $zone->name, q{answer}) ) {
                 push @unexpected_answer, $ns->address->short;
             }
-            
-            elsif ( not $p->aa ){
+
+            elsif ( not $p->aa ) {
                 push @unset_aa, $ns->address->short;
             }
-            
+
             elsif ( defined $p->edns_data ) {
-                push @unknown_opt_code, $ns->address->short;
+                my $p_opt = $p->edns_data;
+
+                # Unpack the bytes string:
+                # - OPTION-CODE as unsigned short (16-bit) in "network" (big-endian) order, and
+                # - OPTION-DATA as a sequence of bytes of length specified by a prefixed unsigned short (16-bit)
+                #   in "network" (big-endian) order (OPTION-LENGTH), and
+                # - Remaining data, if any (i.e., other OPTIONS)
+
+                my @unpacked_opt = eval { unpack("(n n/a)*", $p_opt) };
+
+                while ( my ( $p_opt_code, $p_opt_data, @next_data ) = @unpacked_opt ) {
+                    if ( $p_opt_code == $opt_code ) {
+                        push @unknown_opt_code, $ns->address->short;
+                        last;
+                    }
+
+                    @unpacked_opt = @next_data;
+                }
             }
         }
         else{
@@ -1214,13 +1545,13 @@ sub nameserver11 {
         }
     }
 
-    if ( scalar @no_response ){
-        push @results, info( N11_NO_RESPONSE => { ns_ip_list => join( q{;}, uniq sort @no_response ) } );
+    if ( scalar @no_response ) {
+        push @results, _emit_log( N11_NO_RESPONSE => { ns_ip_list => join( q{;}, uniq sort @no_response ) } );
     }
 
-    if ( scalar keys %unexpected_rcode ){
+    if ( scalar keys %unexpected_rcode ) {
         push @results, map {
-          info(
+          _emit_log(
             N11_UNEXPECTED_RCODE => {
                 rcode     => $_,
                 ns_ip_list => join( q{;}, uniq sort @{ $unexpected_rcode{$_} } )
@@ -1229,28 +1560,46 @@ sub nameserver11 {
         } keys %unexpected_rcode;
     }
 
-    if ( scalar @no_edns ){
-        push @results, info( N11_NO_EDNS => { ns_ip_list => join( q{;}, uniq sort @no_edns ) } );
+    if ( scalar @no_edns ) {
+        push @results, _emit_log( N11_NO_EDNS => { ns_ip_list => join( q{;}, uniq sort @no_edns ) } );
     }
 
-    if ( scalar @unexpected_answer ){
-        push @results, info( N11_UNEXPECTED_ANSWER_SECTION => { ns_ip_list => join( q{;}, uniq sort @unexpected_answer ) } );
+    if ( scalar @unexpected_answer ) {
+        push @results, _emit_log( N11_UNEXPECTED_ANSWER_SECTION => { ns_ip_list => join( q{;}, uniq sort @unexpected_answer ) } );
     }
 
-    if ( scalar @unset_aa ){
-        push @results, info( N11_UNSET_AA => { ns_ip_list => join( q{;}, uniq sort @unset_aa ) } );
+    if ( scalar @unset_aa ) {
+        push @results, _emit_log( N11_UNSET_AA => { ns_ip_list => join( q{;}, uniq sort @unset_aa ) } );
     }
 
-    if ( scalar @unknown_opt_code ){
-        push @results, info( N11_RETURNS_UNKNOWN_OPTION_CODE => { ns_ip_list => join( q{;}, uniq sort @unknown_opt_code ) } );
+    if ( scalar @unknown_opt_code ) {
+        push @results, _emit_log( N11_RETURNS_UNKNOWN_OPTION_CODE => { ns_ip_list => join( q{;}, uniq sort @unknown_opt_code ) } );
     }
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub nameserver11
+
+=over
+
+=item nameserver12()
+
+    my @logentry_array = nameserver12( $zone );
+
+Runs the L<Nameserver12 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Nameserver-TP/nameserver12.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub nameserver12 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Nameserver12';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
 
     my @nss =  @{ Zonemaster::Engine::TestMethods->method4and5( $zone ) };
 
@@ -1258,24 +1607,25 @@ sub nameserver12 {
 
         next if ( _ip_disabled_message( \@results, $ns, q{SOA} ) );
 
-        my $p = $ns->query( $zone->name, q{SOA}, { edns_details => { z => 3 } } );
+        my $p = $ns->query( $zone->name, q{SOA}, { edns_details => { version => 0, z => 3 } } );
+
         if ( $p ) {
             if ( $p->rcode eq q{FORMERR} and not $p->edns_rcode ) {
-                push @results, info( NO_EDNS_SUPPORT => { ns => $ns->string } );
+                push @results, _emit_log( NO_EDNS_SUPPORT => { ns => $ns->string } );
             }
             elsif ( $p->edns_z ) {
-                push @results, info( Z_FLAGS_NOTCLEAR => { ns => $ns->string } );
+                push @results, _emit_log( Z_FLAGS_NOTCLEAR => { ns => $ns->string } );
             }
             elsif ( $p->rcode eq q{NOERROR} and not $p->edns_rcode and $p->edns_version == 0 and $p->edns_z == 0 and $p->get_records( q{SOA}, q{answer} ) ) {
                 next;
             }
             else {
-                push @results, info( NS_ERROR => { ns => $ns->string } );
+                push @results, _emit_log( NS_ERROR => { ns => $ns->string } );
             }
         }
         else {
             push @results,
-              info(
+              _emit_log(
                 NO_RESPONSE => {
                     ns     => $ns->string,
                     domain => $zone->name,
@@ -1284,12 +1634,30 @@ sub nameserver12 {
         }
     }
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub nameserver12
+
+=over
+
+=item nameserver13()
+
+    my @logentry_array = nameserver13( $zone );
+
+Runs the L<Nameserver13 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Nameserver-TP/nameserver13.md>.
+
+Takes a L<Zonemaster::Engine::Zone> object.
+
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
+
+=back
+
+=cut
 
 sub nameserver13 {
     my ( $class, $zone ) = @_;
-    push my @results, info( TEST_CASE_START => { testcase => (split /::/, (caller(0))[3])[-1] } );
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Nameserver13';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
 
     my @nss =  @{ Zonemaster::Engine::TestMethods->method4and5( $zone ) };
 
@@ -1297,24 +1665,25 @@ sub nameserver13 {
 
         next if ( _ip_disabled_message( \@results, $ns, q{SOA} ) );
 
-        my $p = $ns->query( $zone->name, q{SOA}, { usevc => 0, fallback => 0, edns_details => { do => 1, udp_size => 512 } } );
+        my $p = $ns->query( $zone->name, q{SOA}, { usevc => 0, fallback => 0, edns_details => { version => 0, do => 1, size => 512 } } );
+
         if ( $p ) {
             if ( $p->rcode eq q{FORMERR} and not $p->edns_rcode ) {
-                push @results, info( NO_EDNS_SUPPORT => { ns => $ns->string, } );
+                push @results, _emit_log( NO_EDNS_SUPPORT => { ns => $ns->string, } );
             }
             elsif ( $p->tc and not $p->has_edns ) {
-                push @results, info( MISSING_OPT_IN_TRUNCATED => { ns => $ns->string } );
+                push @results, _emit_log( MISSING_OPT_IN_TRUNCATED => { ns => $ns->string } );
             }
             elsif ( $p->rcode eq q{NOERROR} and not $p->edns_rcode and $p->edns_version == 0 ) {
                 next;
             }
             else {
-                push @results, info( NS_ERROR => { ns => $ns->string } );
+                push @results, _emit_log( NS_ERROR => { ns => $ns->string } );
             }
         }
         else {
             push @results,
-              info(
+              _emit_log(
                 NO_RESPONSE => {
                     ns     => $ns->string,
                     domain => $zone->name,
@@ -1323,98 +1692,117 @@ sub nameserver13 {
         }
     }
 
-    return ( @results, info( TEST_CASE_END => { testcase => (split /::/, (caller(0))[3])[-1] } ) );
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
 } ## end sub nameserver13
 
-1;
-
-=head1 NAME
-
-Zonemaster::Engine::Test::Nameserver - module implementing tests of the properties of a name server
-
-=head1 SYNOPSIS
-
-    my @results = Zonemaster::Engine::Test::Nameserver->all($zone);
-
-=head1 METHODS
-
 =over
 
-=item all($zone)
+=item nameserver15()
 
-Runs the default set of tests and returns a list of log entries made by the tests
+    my @logentry_array = nameserver15( $zone );
 
-=item tag_descriptions()
+Runs the L<Nameserver15 Test Case|https://github.com/zonemaster/zonemaster/blob/master/docs/public/specifications/tests/Nameserver-TP/nameserver15.md>.
 
-Returns a refernce to a hash with translation functions. Used by the builtin translation system.
+Takes a L<Zonemaster::Engine::Zone> object.
 
-=item metadata()
-
-Returns a reference to a hash, the keys of which are the names of all test methods in the module, and the corresponding values are references to
-lists with all the tags that the method can use in log entries.
-
-=item version()
-
-Returns a version string for the module.
-
-=back
-
-=head1 TESTS
-
-=over
-
-=item nameserver01($zone)
-
-Verify that nameserver is not recursive.
-
-=item nameserver02($zone)
-
-Verify EDNS0 support.
-
-=item nameserver03($zone)
-
-Verify that zone transfer (AXFR) is not available.
-
-=item nameserver04($zone)
-
-Verify that replies from nameserver comes from the expected IP address.
-
-=item nameserver05($zone)
-
-Verify behaviour against AAAA queries.
-
-=item nameserver06($zone)
-
-Verify that each nameserver can be resolved to an IP address.
-
-=item nameserver07($zone)
-
-Check whether authoritative name servers return an upward referral.
-
-=item nameserver08($zone)
-
-Check whether authoritative name servers responses match the case of every letter in QNAME.
-
-=item nameserver09($zone)
-
-Check whether authoritative name servers return same results for equivalent names with different cases in the request.
-
-=item nameserver10($zone)
-
-Check whether authoritative name servers respond correctly to queries with undefined EDNS version.
-
-=item nameserver11($zone)
-
-Check whether authoritative name servers responses doe not include unknown EDNS OPTION-CODE used in query.
-
-=item nameserver12($zone)
-
-Check whether authoritative name servers responses has "Z" bits cleared even if they are set in the query.
-
-=item nameserver13($zone)
-
-This Test Case will try to verify that if the response to a query with an OPT record is truncated, then the response will contain an OPT record.
+Returns a list of L<Zonemaster::Engine::Logger::Entry> objects.
 
 =back
 
 =cut
+
+sub nameserver15 {
+    my ( $class, $zone ) = @_;
+
+    local $Zonemaster::Engine::Logger::TEST_CASE_NAME = 'Nameserver15';
+    push my @results, _emit_log( TEST_CASE_START => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } );
+
+    my %txt_data;
+    my %error_on_version_query;
+    my %sending_version_query;
+    my @wrong_record_class;
+
+    foreach my $ns ( @{ Zonemaster::Engine::TestMethods->method4and5( $zone ) } ) {
+        next if ( _ip_disabled_message( \@results, $ns, q{SOA TXT} ) );
+
+        my $p_soa = $ns->query( $zone->name, q{SOA} );
+
+        next if not $p_soa;
+
+        $sending_version_query{$ns} = 1;
+
+        foreach my $query_name ( q{version.bind}, q{version.server} ) {
+            my $p_txt = $ns->query( $query_name, q{TXT}, { class => q{CH} } );
+
+            if ( not $p_txt or $p_txt->rcode eq q{SERVFAIL} ) {
+                push @{ $error_on_version_query{$query_name} }, $ns;
+                next;
+            }
+
+            my @rrs_txt = $p_txt->get_records_for_name(q{TXT}, $query_name, q{answer});
+
+            if ( scalar @rrs_txt ) {
+                foreach my $rr ( @rrs_txt ) {
+                    if ( $rr->class ne q{CH} ) {
+                        push @wrong_record_class, $ns;
+                    }
+
+                    my $string = $rr->txtdata;
+                    $string =~ s/^\s+|\s+$//g; # Remove leading and trailing spaces
+
+                    if ( $string and $string ne "") {
+                        push @{ $txt_data{$string}{$query_name} }, $ns;
+                        delete $sending_version_query{$ns};
+                    }
+                }
+            }
+        }
+    }
+
+    if ( scalar keys %txt_data ) {
+        foreach my $string ( keys %txt_data ) {
+            push @results, map {
+              _emit_log(
+                N15_SOFTWARE_VERSION => {
+                   string => $string,
+                   query_name => $_,
+                   ns_list => join( q{;}, sort @{ $txt_data{$string}{$_} } )
+                }
+              )
+            } keys %{ $txt_data{$string} };
+        }
+    }
+
+    if ( scalar keys %error_on_version_query ) {
+        push @results, map {
+          _emit_log(
+            N15_ERROR_ON_VERSION_QUERY => {
+               query_name => $_,
+               ns_list => join( q{;}, sort @{ $error_on_version_query{$_} } )
+            }
+          )
+        } keys %error_on_version_query;
+    }
+
+    if ( scalar keys %sending_version_query ) {
+        push @results,
+          _emit_log(
+            N15_NO_VERSION_REVEALED => {
+               ns_list => join( q{;}, sort keys %sending_version_query )
+            }
+          );
+    }
+
+    if ( scalar @wrong_record_class ) {
+        push @results,
+          _emit_log(
+            N15_WRONG_CLASS => {
+               ns_list => join( q{;}, sort @wrong_record_class )
+            }
+          );
+    }
+
+    return ( @results, _emit_log( TEST_CASE_END => { testcase => $Zonemaster::Engine::Logger::TEST_CASE_NAME } ) );
+} ## end sub nameserver15
+
+1;

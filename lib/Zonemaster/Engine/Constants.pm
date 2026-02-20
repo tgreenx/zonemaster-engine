@@ -1,20 +1,66 @@
 package Zonemaster::Engine::Constants;
 
-use version; our $VERSION = version->declare("v1.2.5");
-
-use strict;
+use v5.16.0;
 use warnings;
 
+use version; our $VERSION = version->declare("v1.2.5");
+
 use Carp;
-
 use English qw( -no_match_vars ) ;
-
 use parent 'Exporter';
-use Zonemaster::Engine::Net::IP;
+use Net::IP::XS;
 use Text::CSV;
 use File::ShareDir qw[dist_dir dist_file];
 
 use Readonly;
+
+=head1 NAME
+
+Zonemaster::Engine::Constants - module holding constants used in Test modules
+
+=head1 SYNOPSIS
+
+   use Zonemaster::Engine::Constants ':all';
+
+=head1 EXPORTED GROUPS
+
+=over
+
+=item all
+
+All exportable names.
+
+=item algo
+
+DNSSEC algorithms.
+
+=item cname
+
+CNAME records.
+
+=item name
+
+Label and name lengths.
+
+=item ip
+
+IP version constants.
+
+=item soa
+
+SOA values limits.
+
+=item misc
+
+Other, uncategorized export names, e.g. UDP payload limit and minimum number of name servers per zone.
+
+=item addresses
+
+Address classes for IPv4 and IPv6.
+
+=back
+
+=cut
 
 our @EXPORT_OK = qw[
   $ALGO_STATUS_DEPRECATED
@@ -25,6 +71,8 @@ our @EXPORT_OK = qw[
   $ALGO_STATUS_NOT_RECOMMENDED
   $ALGO_STATUS_NOT_ZONE_SIGN
   $BLACKLISTING_ENABLED
+  $CNAME_MAX_CHAIN_LENGTH
+  $CNAME_MAX_RECORDS
   $DURATION_5_MINUTES_IN_SECONDS
   $DURATION_1_HOUR_IN_SECONDS
   $DURATION_4_HOURS_IN_SECONDS
@@ -36,11 +84,13 @@ our @EXPORT_OK = qw[
   $IP_VERSION_4
   $IP_VERSION_6
   $LABEL_MAX_LENGTH
-  $MAX_SERIAL_VARIATION
+  $SERIAL_BITS
+  $SERIAL_MAX_VARIATION
   $MINIMUM_NUMBER_OF_NAMESERVERS
-  $RESOLVER_SOURCE_OS_DEFAULT
   $UDP_PAYLOAD_LIMIT
-  $UDP_COMMON_EDNS_LIMIT
+  $EDNS_UDP_PAYLOAD_DNSSEC_DEFAULT
+  $EDNS_UDP_PAYLOAD_DEFAULT
+  $EDNS_UDP_PAYLOAD_COMMON_LIMIT
   @IPV4_SPECIAL_ADDRESSES
   @IPV6_SPECIAL_ADDRESSES
 ];
@@ -50,15 +100,96 @@ our %EXPORT_TAGS = (
     algo => [
         qw($ALGO_STATUS_DEPRECATED $ALGO_STATUS_PRIVATE $ALGO_STATUS_RESERVED $ALGO_STATUS_UNASSIGNED $ALGO_STATUS_OTHER $ALGO_STATUS_NOT_ZONE_SIGN $ALGO_STATUS_NOT_RECOMMENDED)
     ],
+    cname => [ qw($CNAME_MAX_CHAIN_LENGTH $CNAME_MAX_RECORDS) ],
     name => [qw($FQDN_MAX_LENGTH $LABEL_MAX_LENGTH)],
     ip   => [qw($IP_VERSION_4 $IP_VERSION_6)],
     soa  => [
-        qw($DURATION_5_MINUTES_IN_SECONDS $DURATION_1_HOUR_IN_SECONDS $DURATION_4_HOURS_IN_SECONDS $DURATION_12_HOURS_IN_SECONDS $DURATION_1_DAY_IN_SECONDS $DURATION_1_WEEK_IN_SECONDS $DURATION_180_DAYS_IN_SECONDS $MAX_SERIAL_VARIATION)
+        qw($DURATION_5_MINUTES_IN_SECONDS $DURATION_1_HOUR_IN_SECONDS $DURATION_4_HOURS_IN_SECONDS $DURATION_12_HOURS_IN_SECONDS $DURATION_1_DAY_IN_SECONDS $DURATION_1_WEEK_IN_SECONDS $DURATION_180_DAYS_IN_SECONDS $SERIAL_BITS $SERIAL_MAX_VARIATION)
     ],
-    misc => [qw($UDP_PAYLOAD_LIMIT $UDP_COMMON_EDNS_LIMIT $MINIMUM_NUMBER_OF_NAMESERVERS $RESOLVER_SOURCE_OS_DEFAULT $BLACKLISTING_ENABLED)]
-    ,    # everyting in %EXPORT_OK that isn't included in any of the other tags
+    misc => [qw($UDP_PAYLOAD_LIMIT $EDNS_UDP_PAYLOAD_DNSSEC_DEFAULT $EDNS_UDP_PAYLOAD_DEFAULT $EDNS_UDP_PAYLOAD_COMMON_LIMIT $MINIMUM_NUMBER_OF_NAMESERVERS $BLACKLISTING_ENABLED)]
+    ,    # everything in %EXPORT_OK that isn't included in any of the other tags
     addresses => [qw(@IPV4_SPECIAL_ADDRESSES @IPV6_SPECIAL_ADDRESSES)],
 );
+
+=head1 EXPORTED NAMES
+
+=over
+
+=item * C<$ALGO_STATUS_DEPRECATED>
+
+=item * C<$ALGO_STATUS_PRIVATE>
+
+=item * C<$ALGO_STATUS_RESERVED>
+
+=item * C<$ALGO_STATUS_UNASSIGNED>
+
+=item * C<$ALGO_STATUS_OTHER>
+
+=item * C<$ALGO_STATUS_NOT_RECOMMENDED>
+
+=item * C<$ALGO_STATUS_NOT_ZONE_SIGN>
+
+=item * C<$BLACKLISTING_ENABLED>
+
+A boolean, used to enable the name server blacklisting mechanism.
+
+=item * C<$CNAME_MAX_CHAIN_LENGTH>
+
+An integer, used to define the maximum length of a CNAME chain when doing consecutive recursive lookups.
+
+=item * C<$CNAME_MAX_RECORDS>
+
+An integer, used to define the maximum number of CNAME records in a response.
+
+=item * C<$DURATION_5_MINUTES_IN_SECONDS>
+
+=item * C<$DURATION_1_HOUR_IN_SECONDS>
+
+=item * C<$DURATION_4_HOURS_IN_SECONDS>
+
+=item * C<$DURATION_12_HOURS_IN_SECONDS>
+
+=item * C<$DURATION_1_DAY_IN_SECONDS>
+
+=item * C<$DURATION_1_WEEK_IN_SECONDS>
+
+=item * C<$DURATION_180_DAYS_IN_SECONDS>
+
+=item * C<$FQDN_MAX_LENGTH>
+
+=item * C<$LABEL_MAX_LENGTH>
+
+=item * C<$IP_VERSION_4>
+
+=item * C<$IP_VERSION_6>
+
+=item * C<$SERIAL_BITS>
+
+An integer, used to define the size of the serial number space, as defined in RFC1982, section 2.
+
+=item * C<$SERIAL_MAX_VARIATION>
+
+=item * C<$MINIMUM_NUMBER_OF_NAMESERVERS>
+
+=item * C<$UDP_PAYLOAD_LIMIT>
+
+=item * C<$EDNS_UDP_PAYLOAD_DEFAULT>
+
+An integer, used to define the EDNS0 UDP packet size in non-DNSSEC EDNS queries.
+
+=item * C<$EDNS_UDP_PAYLOAD_COMMON_LIMIT>
+
+=item * C<$EDNS_UDP_PAYLOAD_DNSSEC_DEFAULT>
+
+An integer, used to define the EDNS0 UDP packet size in DNSSEC queries.
+
+=item * C<@IPV4_SPECIAL_ADDRESSES>
+
+=item * C<@IPV6_SPECIAL_ADDRESSES>
+
+=back
+
+=cut
 
 Readonly our $ALGO_STATUS_DEPRECATED      => 1;
 Readonly our $ALGO_STATUS_PRIVATE         => 4;
@@ -69,6 +200,9 @@ Readonly our $ALGO_STATUS_NOT_ZONE_SIGN   => 8;
 Readonly our $ALGO_STATUS_NOT_RECOMMENDED => 9;
 
 Readonly our $BLACKLISTING_ENABLED     => 1;
+
+Readonly our $CNAME_MAX_CHAIN_LENGTH      => 10;
+Readonly our $CNAME_MAX_RECORDS           => 9;
 
 Readonly our $DURATION_5_MINUTES_IN_SECONDS  =>             5 * 60;
 Readonly our $DURATION_1_HOUR_IN_SECONDS     =>            60 * 60;
@@ -85,18 +219,37 @@ Readonly our $LABEL_MAX_LENGTH => 63;
 Readonly our $IP_VERSION_4 => 4;
 Readonly our $IP_VERSION_6 => 6;
 
-Readonly our $MAX_SERIAL_VARIATION => 0;
-
 Readonly our $MINIMUM_NUMBER_OF_NAMESERVERS => 2;
 
-Readonly our $RESOLVER_SOURCE_OS_DEFAULT => 'os_default';
+Readonly our $SERIAL_BITS => 32;
+Readonly our $SERIAL_MAX_VARIATION => 0;
 
-Readonly our $UDP_PAYLOAD_LIMIT     => 512;
-Readonly our $UDP_COMMON_EDNS_LIMIT => 4_096;
+Readonly our $UDP_PAYLOAD_LIMIT               => 512;
+Readonly our $EDNS_UDP_PAYLOAD_DEFAULT        => 512;
+Readonly our $EDNS_UDP_PAYLOAD_COMMON_LIMIT   => 4096;
+Readonly our $EDNS_UDP_PAYLOAD_DNSSEC_DEFAULT => 1232;
 
 Readonly::Array our @IPV4_SPECIAL_ADDRESSES => _extract_iana_ip_blocks($IP_VERSION_4);
-
 Readonly::Array our @IPV6_SPECIAL_ADDRESSES => _extract_iana_ip_blocks($IP_VERSION_6);
+
+=head1 METHODS
+
+=over
+
+=item _extract_iana_ip_blocks()
+
+    my @array = _extract_iana_ip_blocks( $ip_version );
+
+Internal method that is used to extract IP blocks details from IANA files for a given IP version (i.e. 4 or 6).
+
+Takes an integer (IP version).
+
+Returns a list of hashes - the keys of which are C<ip> (L<Net::IP::XS> object), C<name> (string), C<reference> (string)
+and C<globally_reachable> (string).
+
+=back
+
+=cut
 
 sub _extract_iana_ip_blocks {
     my $ip_version = shift;
@@ -127,7 +280,7 @@ sub _extract_iana_ip_blocks {
             $address_data =~ s/[ ]+//smx;
             foreach my $address_item ( split /,/smx, $address_data ) {
                 $address_item =~ s/(\A.+\/\d+).*\z/$1/smx;
-                push @list, { ip => Zonemaster::Engine::Net::IP->new( $address_item ), name => $fields->[1], reference => $fields->[2] };
+                push @list, { ip => Net::IP::XS->new( $address_item ), name => $fields->[1], reference => $fields->[2], globally_reachable => $fields->[8] };
             }
         }
         close $data or croak "Cannot close '${data_location}' : ${OS_ERROR}";
@@ -137,153 +290,3 @@ sub _extract_iana_ip_blocks {
 } ## end sub _extract_iana_ip_blocks
 
 1;
-
-=head1 NAME
-
-Zonemaster::Engine::Constants - module holding constants used in test modules
-
-=head1 SYNOPSIS
-
-   use Zonemaster::Engine::Constants ':all';
-
-=head1 EXPORTED GROUPS
-
-=over
-
-=item all
-
-All exportable names.
-
-=item algo
-
-DNSSEC algorithms.
-
-=item name
-
-Label and name lengths.
-
-=item ip
-
-IP version constants.
-
-=item soa
-
-SOA value limits.
-
-=item misc
-
-UDP payload limit and minimum number of nameservers per zone.
-
-=item addresses
-
-Address classes for IPv4 and IPv6.
-
-=item extract_iana_ip_blocks($ip_version)
-
-Will extract IPs details from IANA files.
-
-=back
-
-=head1 EXPORTED NAMES
-
-=over
-
-=item *
-
-C<$ALGO_STATUS_DEPRECATED>
-
-=item *
-
-C<$ALGO_STATUS_PRIVATE>
-
-=item *
-
-C<$ALGO_STATUS_RESERVED>
-
-=item *
-
-C<$ALGO_STATUS_UNASSIGNED>
-
-=item *
-
-C<$ALGO_STATUS_OTHER>
-
-=item *
-
-C<$ALGO_STATUS_NOT_RECOMMENDED>
-
-=item *
-
-C<$ALGO_STATUS_NOT_ZONE_SIGN>
-
-=item *
-
-C<$DURATION_5_MINUTES_IN_SECONDS>
-
-=item *
-
-C<$DURATION_1_HOUR_IN_SECONDS>
-
-=item *
-
-C<$DURATION_4_HOURS_IN_SECONDS>
-
-=item *
-
-C<$DURATION_12_HOURS_IN_SECONDS>
-
-=item *
-
-C<$DURATION_1_DAY_IN_SECONDS>
-
-=item *
-
-C<$DURATION_1_WEEK_IN_SECONDS>
-
-=item *
-
-C<$DURATION_180_DAYS_IN_SECONDS>
-
-=item *
-
-C<$FQDN_MAX_LENGTH>
-
-=item *
-
-C<$LABEL_MAX_LENGTH>
-
-=item *
-
-C<$IP_VERSION_4>
-
-=item *
-
-C<$IP_VERSION_6>
-
-=item *
-
-C<$MAX_SERIAL_VARIATION>
-
-=item *
-
-C<$MINIMUM_NUMBER_OF_NAMESERVERS>
-
-=item *
-
-C<$UDP_PAYLOAD_LIMIT>
-
-=item *
-
-C<UDP_COMMON_EDNS_LIMIT>
-
-=item *
-
-C<@IPV4_SPECIAL_ADDRESSES>
-
-=item *
-
-C<@IPV6_SPECIAL_ADDRESSES>
-
-=back
-
-=cut

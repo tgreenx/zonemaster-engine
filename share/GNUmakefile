@@ -1,6 +1,6 @@
 .POSIX:
 .SUFFIXES: .po .mo
-.PHONY: all check-msg-args dist extract-pot tidy-po show-fuzzy update-po
+.PHONY: all check-msg-args dist extract-pot tidy-po show-fuzzy update-po new-po check-po
 
 POFILES := $(shell find . -maxdepth 1 -type f -name '*.po' -exec basename {} \;)
 MOFILES := $(POFILES:%.po=%.mo)
@@ -24,6 +24,20 @@ extract-pot:
 
 $(POTFILE): extract-pot
 
+# Create a new empty PO file with basename provided with the POLANG variable
+# Update the Language field in the header
+new-po: extract-pot
+	@[ -n "$(POLANG)" ] || ( echo "Usage: make POLANG=xx new-po" && exit 1 )
+	@cp $(POTFILE) $(POLANG).po
+	@perl -pi -e 's/^("Project-Id-Version:) .+(\\n)/$$1 1.0.0$$2/;' \
+		-e 's/^("Language-Team:) .+(\\n)/$$1 Zonemaster Team$$2/;' \
+		-e 's/^"Language: /$$&$(POLANG)/;' \
+		-e 's/^("Content-Type:.+charset=)CHARSET/$${1}UTF-8/;' $(POLANG).po
+	@perl -ni -e 'print unless /^#( |$$)/' $(POLANG).po
+
+check-po:
+	@for f in $(POFILES) ; do msgfmt -c $$f ; done
+
 .po.mo:
 	@msgfmt -o $@ $<
 	@mkdir -p locale/`basename $@ .mo`/LC_MESSAGES
@@ -36,4 +50,5 @@ check-msg-args:
 	@for f in $(POFILES) ; do ../util/check-msg-args $$f ; done
 
 modules.txt: $(TESTMODULEFILES)
-	@echo $(TESTMODULEFILES) | xargs basename -s .pm -a | grep -vE '^Basic$$' | sort > modules.txt
+	@echo Basic > modules.txt
+	@echo $(TESTMODULEFILES) | xargs basename -s .pm -a | grep -vE '^Basic$$' | sort >> modules.txt

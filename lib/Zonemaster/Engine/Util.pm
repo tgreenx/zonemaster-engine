@@ -1,8 +1,6 @@
 package Zonemaster::Engine::Util;
 
-use 5.014002;
-
-use strict;
+use v5.16.0;
 use warnings;
 
 use version; our $VERSION = version->declare("v1.1.13");
@@ -15,34 +13,40 @@ BEGIN {
       name
       ns
       parse_hints
-      pod_extract_for
       should_run_test
       scramble_case
       test_levels
+      zone
     ];
     our %EXPORT_TAGS = ( all => \@EXPORT_OK );
 
     ## no critic (Modules::ProhibitAutomaticExportation)
-    our @EXPORT = qw[ ns info name pod_extract_for scramble_case ];
+    our @EXPORT = qw[ ns info name scramble_case ];
 }
 
 use Net::DNS::ZoneFile;
 use Pod::Simple::SimpleTree;
 
 use Zonemaster::Engine;
-use Zonemaster::Engine::Constants qw[:ip];
+use Zonemaster::Engine::Constants qw[:ip :soa];
 use Zonemaster::Engine::DNSName;
 use Zonemaster::Engine::Profile;
 
-## no critic (Subroutines::RequireArgUnpacking)
 sub ns {
-    return Zonemaster::Engine->ns( @_ );
+    my ( $name, $address ) = @_;
+    return Zonemaster::Engine::Nameserver->new( { name => $name, address => $address } );
 }
 
 sub info {
     my ( $tag, $argref ) = @_;
 
     return Zonemaster::Engine->logger->add( $tag, $argref );
+}
+
+sub zone {
+    my ( $name ) = @_;
+
+    return Zonemaster::Engine::Zone->new( { name => Zonemaster::Engine::DNSName->new( $name ) } );
 }
 
 sub should_run_test {
@@ -67,77 +71,14 @@ sub ipversion_ok {
 }
 
 sub test_levels {
-
     return Zonemaster::Engine::Profile->effective->get( q{test_levels} );
 }
 
+## no critic (Subroutines::RequireArgUnpacking)
 sub name {
-    my ( $name ) = @_;
-
-    return Zonemaster::Engine::DNSName->new( $name );
-}
-
-# Functions for extracting POD documentation from test modules
-
-sub _pod_process_tree {
-    my ( $node, $flags ) = @_;
-    my ( $name, $ahash, @subnodes ) = @{$node};
-    my @res;
-
-    $flags //= {};
-
-    foreach my $node ( @subnodes ) {
-        if ( ref( $node ) ne 'ARRAY' ) {
-            $flags->{tests} = 1 if $name eq 'head1' and $node eq 'TESTS';
-            if ( $name eq 'item-text' and $flags->{tests} ) {
-                $node =~ s/\A(\w+).*\z/$1/x;
-                $flags->{item} = $node;
-                push @res, $node;
-            }
-        }
-        else {
-            if ( $flags->{item} ) {
-                push @res, _pod_extract_text( $node );
-            }
-            else {
-                push @res, _pod_process_tree( $node, $flags );
-            }
-        }
-    }
-
-    return @res;
-} ## end sub _pod_process_tree
-
-sub _pod_extract_text {
-    my ( $node ) = @_;
-    my ( $name, $ahash, @subnodes ) = @{$node};
-    my $res = q{};
-
-    foreach my $node ( @subnodes ) {
-        if ( $name eq q{item-text} ) {
-            $node =~ s/\A(\w+).*\z/$1/x;
-        }
-
-        if ( ref( $node ) eq q{ARRAY} ) {
-            $res .= _pod_extract_text( $node );
-        }
-        else {
-            $res .= $node;
-        }
-    }
-
-    return $res;
-} ## end sub _pod_extract_text
-
-sub pod_extract_for {
-    my ( $name ) = @_;
-
-    my $parser = Pod::Simple::SimpleTree->new;
-    $parser->no_whining( 1 );
-
-    my %desc = eval { _pod_process_tree( $parser->parse_file( $INC{"Zonemaster/Engine/Test/$name.pm"} )->root ) };
-
-    return \%desc;
+    # We do not unpack @_ here for performance reasons.
+    # If we did, the calling convention is: my ( $name ) = @_.
+    return Zonemaster::Engine::DNSName->new( @_ );
 }
 
 # Function from CPAN package Text::Capitalize that causes
@@ -211,7 +152,7 @@ sub parse_hints {
         }
         else {
             my $rrtype = $glue{$owner};
-            die "Ownername of $rrtype record does not match any NS RDATA\n";
+            die "Owner name of $rrtype record does not match any NS RDATA\n";
         }
     }
 
@@ -234,6 +175,14 @@ sub parse_hints {
     }
 
     return \%hints;
+}
+
+sub serial_gt {
+    my ( $sa, $sb ) = @_;
+
+    return ( ( $sa < $sb and ( ($sb - $sa) > 2**( $SERIAL_BITS - 1 ) ) ) or
+             ( $sa > $sb and ( ($sa - $sb) < 2**( $SERIAL_BITS - 1 ) ) )
+           );
 }
 
 1;
@@ -265,6 +214,10 @@ Creates and returns a nameserver object with the given name and address.
 =item name($string_name_or_zone)
 
 Creates and returns a L<Zonemaster::Engine::DNSName> object for the given argument.
+
+=item zone($name)
+
+Returns a L<Zonemaster::Engine::Zone> object for the given name.
 
 =item parse_hints($string)
 
@@ -314,16 +267,11 @@ domain name in the RDATA of some NS record in the zone.
 
 =back
 
-=item pod_extract_for($testname)
+=item serial_gt($serial_a, $serial_b)
+Checks if serial_a is greater than serial_b, according to
+serial number arithmetic as defined in RFC1982, section 3.2.
 
-Will attempt to extract the POD documentation for the test methods in
-the test module for which the name is given. If it can, it returns a
-reference to a hash where the keys are the test method names and the
-values the documentation strings.
-
-This method blindly assumes that the structure of the POD is exactly
-like that in the Basic test module.
-If it's not, the results are undefined.
+Return a boolean.
 
 =item scramble_case
 
